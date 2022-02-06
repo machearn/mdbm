@@ -47,9 +47,14 @@ Page* mallocPage();
 
 int loadPage(int fd, off_t offset, Page** pPage);
 
-int insertRecord(int fd, Page* root, uint64_t key, off_t offset);
+off_t searchInternalNode(Page* node, uint64_t key);
+int searchLeafNode(Page* node, uint64_t key, Cell* Cell);
+
+int insert(int fd, Page* root, uint64_t key, off_t offset);
+int search(int fd, Page* root, Cell** pCell);
+int delete(int fd, uint64_t key);
+int update(int fd, Page* root, uint64_t key, Cell* cell);
+
 int splitNode(int fd, Page* Node);
-off_t searchRecord(int fd, Page* root);
-int deleteRecord(int fd, uint64_t key);
 
 #endif //MDBM_BTREE_H
