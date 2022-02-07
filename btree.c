@@ -11,11 +11,12 @@ Page* mallocPage() {
     return p;
 }
 
-int loadPage(int fd, off_t offset, Page** pPage) {
+int loadPage(int fd, off_t offset, Page* page) {
     if (lseek(fd, offset, SEEK_SET) < 0) {
         return -1;
     }
-    if (read(fd, *pPage, 4096) < 0) {
+
+    if (read(fd, page, 4096) < 0) {
         return -1;
     }
     return 0;
@@ -23,11 +24,11 @@ int loadPage(int fd, off_t offset, Page** pPage) {
 
 off_t searchInternalNode(Page* node, uint64_t key) {
     uint8_t size = node->numCells;
+    if (key < node->cells[0].key) return node->leftMost;
+    if (key >= node->cells[size-1].key) return node->cells[size-1].offset;
+
     uint8_t left = 0;
     uint8_t right = size;
-
-    if (key < node->cells[left].key) return node->leftMost;
-    if (key >= node->cells[right].key) return node->cells[size-1].offset;
 
     while (left < right) {
         uint8_t mid = left + (right - left) / 2;
@@ -49,17 +50,56 @@ int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
 
     while (left < right) {
         uint8_t mid = left + (right - left) / 2;
-        if (node->cells[mid].key == key) {
-            memcpy((void*)((node->cells)+mid), (void*)cell, sizeof(Cell));
-            return 0;
-        }
-        else if (node->cells[mid].key > key) {
-            right = mid;
+        if (node->cells[mid].key <= key) {
+            left = mid+1;
         }
         else {
-            left = mid+1;
+            right = mid;
         }
     }
 
-    return -1;
+    if (cell)
+        memcpy((void*)((node->cells)+left-1), (void*)cell, sizeof(Cell));
+    return left-1;
+}
+
+int search(Page* root, uint64_t key, Cell* cell) {
+    if (!root->isRoot) return -1;
+    int fd = root->fd;
+
+    Page* node = root;
+    while (node->type == INTERNAL_NODE) {
+        off_t offset = searchInternalNode(node, key);
+        if (loadPage(fd, offset, node) < 0) return -1;
+    }
+
+    return searchLeafNode(node, key, cell);
+}
+
+int insert(Page* root, uint64_t key, off_t offset) {
+    int pos;
+    pos = search(root, key, NULL);
+    if (pos < 0) return -1;
+
+    Page* leaf = root;
+    if (leaf->cells[pos].key == key) return -1;
+
+    if (pos == root->numCells-1) return addLeafPage(leaf, key, offset);
+
+    Cell* begin = leaf->cells;
+    for (int i = leaf->numCells-1; i < pos; i--) {
+        memcpy(begin + i + 1, begin+i, sizeof(Cell));
+        (begin+i+1)->nextCell = begin+i+2;
+        (begin+i+1)->prevCell = begin+i;
+    }
+
+    begin[pos+1].key = key;
+    begin[pos+1].offset = offset;
+    begin[pos+1].prevCell = begin+pos;
+    begin[pos+1].prevCell = begin+pos+2;
+
+    begin[leaf->numCells].nextCell = NULL;
+    leaf->numCells++;
+
+    return 0;
 }

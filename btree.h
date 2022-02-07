@@ -10,7 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define MAX_CELL 127
+#define MAX_CELL 126
 
 typedef struct Cell Cell;
 typedef struct Page Page;
@@ -34,27 +34,31 @@ typedef enum {
  * page size is 4KB aligned
  */
 struct Page {
-    off_t leftMost; // only for internal node left most subpage which contains keys smaller than all keys in the node.
-    Cell cells[MAX_CELL];
-    off_t parent;
     NodeType type; // Leaf or Internal
-    int fd; // if Root, fd is the index file else -1.
+    uint8_t isRoot;
     uint8_t numCells;
-    uint8_t wasted[4];
+    int fd;
+    off_t leftMost; // only for internal node left most subpage which contains keys smaller than all keys in the node.
+    off_t parent;
+    off_t prevPage;
+    off_t nextPage;
+    Cell cells[MAX_CELL];
+    char padding[16];
 };
 
 Page* mallocPage();
 
-int loadPage(int fd, off_t offset, Page** pPage);
+int loadPage(int fd, off_t offset, Page* page);
 
 off_t searchInternalNode(Page* node, uint64_t key);
 int searchLeafNode(Page* node, uint64_t key, Cell* Cell);
+int splitNode(Page* Node);
+int addLeafPage(Page* prev, uint64_t key, off_t offset);
 
-int insert(int fd, Page* root, uint64_t key, off_t offset);
-int search(int fd, Page* root, Cell** pCell);
-int delete(int fd, uint64_t key);
-int update(int fd, Page* root, uint64_t key, Cell* cell);
+int insert(Page* root, uint64_t key, off_t offset);
+int search(Page* root, uint64_t, Cell* Cell);
+int delete(Page* root, uint64_t key);
+int update(Page* root, uint64_t key, Cell* cell);
 
-int splitNode(int fd, Page* Node);
 
 #endif //MDBM_BTREE_H
