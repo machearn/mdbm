@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #define MAX_CELL 126
 
@@ -37,7 +38,7 @@ struct Page {
     NodeType type; // Leaf or Internal
     uint8_t isRoot;
     uint8_t numCells;
-    int fd;
+    off_t offset;
     off_t leftMost; // only for internal node left most subpage which contains keys smaller than all keys in the node.
     off_t parent;
     off_t prevPage;
@@ -52,11 +53,14 @@ int loadPage(int fd, off_t offset, Page* page);
 
 off_t searchInternalNode(Page* node, uint64_t key);
 int searchLeafNode(Page* node, uint64_t key, Cell* Cell);
-int splitNode(Page* Node);
-int addLeafPage(Page* prev, uint64_t key, off_t offset);
 
-int insert(Page* root, uint64_t key, off_t offset);
-int search(Page* root, uint64_t, Cell* Cell);
+int splitNode(Page* node);
+int insertInternalPage(Page* prev, uint64_t key);
+int addKey(int fd, off_t node_off, uint64_t key, off_t offset);
+int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset);
+
+int insert(int fd, Page* root, uint64_t key, off_t offset);
+int search(int fd, Page* root, uint64_t key, Cell* Cell);
 int delete(Page* root, uint64_t key);
 int update(Page* root, uint64_t key, Cell* cell);
 

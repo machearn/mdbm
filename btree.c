@@ -63,9 +63,39 @@ int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
     return left-1;
 }
 
-int search(Page* root, uint64_t key, Cell* cell) {
+int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset) {
+    Page* newLeaf = mallocPage();
+
+    newLeaf->cells[0].key = key;
+    newLeaf->cells[0].offset = offset;
+    newLeaf->cells[0].prevCell = newLeaf->cells;
+    newLeaf->cells[0].nextCell = newLeaf->cells;
+    newLeaf->numCells = 1;
+
+    newLeaf->type = LEAF_NODE;
+    newLeaf->isRoot = 0;
+    newLeaf->parent = prev->parent;
+    newLeaf->leftMost = -1;
+    newLeaf->nextPage = -1;
+    newLeaf->prevPage = prev->offset;
+
+    newLeaf->offset = -1;
+
+    off_t off;
+    if ((off = lseek(fd, 0, SEEK_END)) < 0) return -1;
+    newLeaf->offset = off;
+    prev->nextPage = off;
+    write(fd, newLeaf, sizeof(Page));
+
+    if ((off = lseek(fd, prev->offset, SEEK_SET)) < 0) return -1;
+    write(fd, prev, sizeof(Page));
+
+    addKey(fd, newLeaf->parent, key, off);
+    return 0;
+}
+
+int search(int fd, Page* root, uint64_t key, Cell* cell) {
     if (!root->isRoot) return -1;
-    int fd = root->fd;
 
     Page* node = root;
     while (node->type == INTERNAL_NODE) {
@@ -76,15 +106,15 @@ int search(Page* root, uint64_t key, Cell* cell) {
     return searchLeafNode(node, key, cell);
 }
 
-int insert(Page* root, uint64_t key, off_t offset) {
+int insert(int fd, Page* root, uint64_t key, off_t offset) {
     int pos;
-    pos = search(root, key, NULL);
+    pos = search(fd, root, key, NULL);
     if (pos < 0) return -1;
 
     Page* leaf = root;
     if (leaf->cells[pos].key == key) return -1;
 
-    if (pos == root->numCells-1) return addLeafPage(leaf, key, offset);
+    if (pos == root->numCells-1) return insertLeafPage(fd, leaf, key, offset);
 
     Cell* begin = leaf->cells;
     for (int i = leaf->numCells-1; i < pos; i--) {
@@ -98,7 +128,8 @@ int insert(Page* root, uint64_t key, off_t offset) {
     begin[pos+1].prevCell = begin+pos;
     begin[pos+1].prevCell = begin+pos+2;
 
-    begin[leaf->numCells].nextCell = NULL;
+    begin[leaf->numCells].nextCell = begin;
+    begin->prevCell = begin+leaf->numCells;
     leaf->numCells++;
 
     return 0;
