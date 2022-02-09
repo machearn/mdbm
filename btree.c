@@ -6,9 +6,15 @@
 
 Page* mallocPage() {
     Page* p;
-    p = (Page*) malloc(4096);
-    memset(p, 0, 4096);
+    p = (Page*) malloc(sizeof(Page));
+    memset(p, 0, sizeof(Page));
     return p;
+}
+
+int freePage(Page** page) {
+    free(*page);
+    *page = NULL;
+    return 0;
 }
 
 int loadPage(int fd, off_t offset, Page* page) {
@@ -19,6 +25,24 @@ int loadPage(int fd, off_t offset, Page* page) {
     if (read(fd, page, 4096) < 0) {
         return -1;
     }
+    return 0;
+}
+
+int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev, uint64_t key, off_t offset) {
+    page->numCells = 1;
+    page->isRoot = isRoot;
+    page->parent = parent;
+    page->nextPage = -1;
+    page->prevPage = prev;
+    page->type = type;
+    page->leftMost = -1;
+
+    page->cells->key = key;
+    page->cells->offset = offset;
+    page->cells->nextCell = page->cells;
+    page->cells->prevCell = page->cells;
+
+    page->offset = -1;
     return 0;
 }
 
@@ -63,23 +87,78 @@ int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
     return left-1;
 }
 
+// todo: 在错误处理中，还原之前的写入操作
+int insertInternalPage(int fd, Page* prev, uint64_t key, off_t offset) {
+    Page* newPage = mallocPage();
+    initPage(newPage, 0, INTERNAL_NODE, prev->parent, prev->offset, key, offset);
+    off_t off;
+    if ((off = lseek(fd, 0, SEEK_END)) < 0) {
+        freePage(&newPage);
+        return -1;
+    }
+    newPage->offset = off;
+    prev->nextPage = off;
+    write(fd, newPage, sizeof(Page));
+
+    if (lseek(fd, prev->offset, SEEK_SET) < 0) {
+        freePage(&newPage);
+        return -1;
+    }
+    write(fd, prev, sizeof(Page));
+
+    if (prev->isRoot) {
+        Page* left = mallocPage();
+        if (loadPage(fd, 0, left) < 0) {
+            freePage(&left);
+            return -1;
+        }
+        off_t leftMost;
+        if ((leftMost=lseek(fd, 0, SEEK_END)) < 0) {
+            freePage(&left);
+            return -1;
+        }
+        write(fd, left, sizeof(Page));
+        freePage(&left);
+
+        Page* newRoot = mallocPage();
+        initPage(newRoot, 1, INTERNAL_NODE, -1, -1, key, off);
+        if (lseek(fd, 0, SEEK_SET) < 0) {
+            freePage(&newRoot);
+            return -1;
+        }
+        write(fd, newRoot, sizeof(Page));
+        freePage(&newRoot);
+        freePage(&newPage);
+
+        return 0;
+    } else {
+        addKey(fd, newPage->parent, key, off);
+    }
+
+    freePage(&newPage);
+    return 0;
+}
+
+int addKey(int fd, off_t nodeOff, uint64_t key, off_t offset) {
+    Page* node = mallocPage();
+    if (loadPage(fd, nodeOff, node) < 0) return -1;
+
+    if (node->numCells < MAX_CELL) {
+        node->cells[node->numCells].key = key;
+        node->cells[node->numCells].offset = offset;
+        node->cells[(node->numCells)-1].nextCell = node->cells+node->numCells;
+        node->cells[node->numCells].prevCell = node->cells+node->numCells-1;
+        node->cells[node->numCells].nextCell = node->cells;
+        node->numCells++;
+    } else {
+        insertInternalPage(fd, node, key, offset);
+    }
+    return 0;
+}
+
 int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset) {
     Page* newLeaf = mallocPage();
-
-    newLeaf->cells[0].key = key;
-    newLeaf->cells[0].offset = offset;
-    newLeaf->cells[0].prevCell = newLeaf->cells;
-    newLeaf->cells[0].nextCell = newLeaf->cells;
-    newLeaf->numCells = 1;
-
-    newLeaf->type = LEAF_NODE;
-    newLeaf->isRoot = 0;
-    newLeaf->parent = prev->parent;
-    newLeaf->leftMost = -1;
-    newLeaf->nextPage = -1;
-    newLeaf->prevPage = prev->offset;
-
-    newLeaf->offset = -1;
+    initPage(newLeaf, 0, LEAF_NODE, prev->parent, prev->offset, key, offset);
 
     off_t off;
     if ((off = lseek(fd, 0, SEEK_END)) < 0) return -1;
@@ -87,7 +166,7 @@ int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset) {
     prev->nextPage = off;
     write(fd, newLeaf, sizeof(Page));
 
-    if ((off = lseek(fd, prev->offset, SEEK_SET)) < 0) return -1;
+    if (lseek(fd, prev->offset, SEEK_SET) < 0) return -1;
     write(fd, prev, sizeof(Page));
 
     addKey(fd, newLeaf->parent, key, off);

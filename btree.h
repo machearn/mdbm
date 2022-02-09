@@ -48,15 +48,17 @@ struct Page {
 };
 
 Page* mallocPage();
+int freePage(Page** page);
 
 int loadPage(int fd, off_t offset, Page* page);
+int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev, uint64_t key, off_t offset);
 
 off_t searchInternalNode(Page* node, uint64_t key);
 int searchLeafNode(Page* node, uint64_t key, Cell* Cell);
 
 int splitNode(Page* node);
-int insertInternalPage(Page* prev, uint64_t key);
-int addKey(int fd, off_t node_off, uint64_t key, off_t offset);
+int insertInternalPage(int fd, Page* prev, uint64_t key, off_t offset);
+int addKey(int fd, off_t nodeOff, uint64_t key, off_t offset);
 int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset);
 
 int insert(int fd, Page* root, uint64_t key, off_t offset);
