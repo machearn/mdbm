@@ -56,9 +56,10 @@ int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev,
 off_t searchInternalNode(Page* node, uint64_t key);
 int searchLeafNode(Page* node, uint64_t key, Cell* Cell);
 
-int splitNode(Page* node);
+Page* splitNode(int fd, Page* node);
 int insertInternalPage(int fd, Page* prev, uint64_t key, off_t offset);
-int addKey(int fd, off_t nodeOff, uint64_t key, off_t offset);
+int addInternalKey(int fd, off_t nodeOff, uint64_t key, off_t offset);
+int addCell(Page* leaf, int pos, uint64_t key, off_t offset);
 int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset);
 
 int insert(int fd, Page* root, uint64_t key, off_t offset);
