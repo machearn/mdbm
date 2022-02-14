@@ -46,7 +46,7 @@ int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev,
     return 0;
 }
 
-off_t searchInternalNode(Page* node, uint64_t key) {
+int searchInternalNode(Page* node, uint64_t key) {
     uint8_t size = node->numCells;
     if (key < node->cells[0].key) return node->leftMost;
     if (key >= node->cells[size-1].key) return node->cells[size-1].offset;
@@ -64,7 +64,7 @@ off_t searchInternalNode(Page* node, uint64_t key) {
         }
     }
 
-    return node->cells[left-1].offset;
+    return (int)left-1;
 }
 
 int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
@@ -84,7 +84,7 @@ int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
 
     if (cell)
         memcpy((void*)((node->cells)+left-1), (void*)cell, sizeof(Cell));
-    return left-1;
+    return (int)left-1;
 }
 
 Page* splitNode(int fd, Page* node) {
@@ -217,21 +217,38 @@ int insertInternalPage(int fd, Page* prev, uint64_t key, off_t offset) {
     return 0;
 }
 
-// todo: handle insert key into the full node
 int addInternalKey(int fd, off_t nodeOff, uint64_t key, off_t offset) {
     Page* node = mallocPage();
     if (loadPage(fd, nodeOff, node) < 0) return -1;
+    int pos = searchInternalNode(node, key);
 
-    if (node->numCells < MAX_CELL) {
-        node->cells[node->numCells].key = key;
-        node->cells[node->numCells].offset = offset;
-        node->cells[(node->numCells)-1].nextCell = node->cells+node->numCells;
-        node->cells[node->numCells].prevCell = node->cells+node->numCells-1;
-        node->cells[node->numCells].nextCell = node->cells;
-        node->numCells++;
-    } else {
-        insertInternalPage(fd, node, key, offset);
+    if (pos < 0) return -1;
+    if (node->cells[pos].key == key) return -1;
+
+    if (pos == MAX_CELL-1) return insertInternalPage(fd, node, key, offset);
+
+    if (node->numCells == MAX_CELL) {
+        Page* newNode = splitNode(fd, node);
+        int pos1 = searchInternalNode(node, key);
+        int pos2 = searchInternalNode(newNode, key);
+
+        if (pos2 == -1) {
+            addCell(node, pos1, key, offset);
+        } else {
+            addCell(newNode, pos2, key, offset);
+        }
+        freePage(&node);
+        return 0;
     }
+
+    Cell* begin = node->cells;
+    for (int i = node->numCells-1; i < pos; i--) {
+        memcpy(begin+i+1, begin+i, sizeof(Cell));
+        (begin+i+1)->nextCell = begin+i+2;
+        (begin+i+1)->prevCell = begin+i;
+    }
+    addCell(node, pos, key, offset);
+
     return 0;
 }
 
@@ -255,7 +272,9 @@ int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset) {
 int search(int fd, Page* root, uint64_t key, Cell* cell) {
     Page* node = root;
     while (node->type == INTERNAL_NODE) {
-        off_t offset = searchInternalNode(node, key);
+        int pos = searchInternalNode(node, key);
+        if (pos < 0) return -1;
+        off_t offset = node->cells[pos].offset;
         if (loadPage(fd, offset, node) < 0) return -1;
     }
 

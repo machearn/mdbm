@@ -53,7 +53,7 @@ int freePage(Page** page);
 int loadPage(int fd, off_t offset, Page* page);
 int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev, uint64_t key, off_t offset);
 
-off_t searchInternalNode(Page* node, uint64_t key);
+int searchInternalNode(Page* node, uint64_t key);
 int searchLeafNode(Page* node, uint64_t key, Cell* Cell);
 
 Page* splitNode(int fd, Page* node);
