@@ -50,7 +50,8 @@ struct Page {
 Page* mallocPage();
 int freePage(Page** page);
 
-int loadPage(int fd, off_t offset, Page* page);
+ssize_t dumpPage(int fd, Page* page);
+ssize_t loadPage(int fd, off_t offset, Page* page);
 int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev, uint64_t key, off_t offset);
 
 int searchInternalNode(Page* node, uint64_t key);
@@ -64,8 +65,8 @@ int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset);
 
 int insert(int fd, Page* root, uint64_t key, off_t offset);
 int search(int fd, Page* root, uint64_t key, Cell* Cell);
-int delete(Page* root, uint64_t key);
-int update(Page* root, uint64_t key, Cell* cell);
+int delete(int fd, Page* root, uint64_t key);
+int update(int fd, Page* root, uint64_t key, Cell* cell);
 
 
 #endif //MDBM_BTREE_H
