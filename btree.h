@@ -16,6 +16,16 @@
 typedef struct Cell Cell;
 typedef struct Page Page;
 
+typedef struct {
+    int magicNumber;
+    size_t orderNumber;
+    size_t nodeNumber;
+    size_t height;
+
+    off_t rootOffset;
+    off_t mostLeftLeafOffset;
+}Header;
+
 /*
  * total size of Cell is 4*8 bytes
  */
@@ -49,6 +59,8 @@ struct Page {
 
 Page* mallocPage();
 int freePage(Page** page);
+
+int createTree();
 
 ssize_t dumpPage(int fd, Page* page);
 ssize_t loadPage(int fd, off_t offset, Page* page);

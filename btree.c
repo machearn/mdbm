@@ -40,10 +40,13 @@ int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev,
     page->type = type;
     page->leftMost = -1;
 
-    page->cells->key = key;
-    page->cells->offset = offset;
-    page->cells->nextCell = page->cells;
-    page->cells->prevCell = page->cells;
+    if (key) {
+        page->cells->key = key;
+        page->cells->offset = offset;
+        page->cells->nextCell = page->cells;
+        page->cells->prevCell = page->cells;
+
+    }
 
     page->offset = -1;
     return 0;
@@ -368,5 +371,24 @@ int update(int fd, Page* root, uint64_t key, Cell* cell) {
     Page* leaf = root;
     if (leaf->cells[pos].key != key) return -1;
     memcpy((leaf->cells)+pos, cell, sizeof(Cell));
+    return 0;
+}
+
+int createTree(const char* fileName) {
+    Header header;
+    header.magicNumber = 0x1234;
+    header.orderNumber = MAX_CELL;
+    header.height = 1;
+    header.nodeNumber = 1;
+
+    header.rootOffset = sizeof(Header);
+    header.mostLeftLeafOffset = -1;
+
+    int fd = open(fileName, O_WRONLY);
+    write(fd, &header, sizeof(Header));
+
+    Page root;
+    initPage(&root, 1, INTERNAL_NODE, -1, -1, 0, header.rootOffset);
+    write(fd, &root, sizeof(Page));
     return 0;
 }
