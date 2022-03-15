@@ -53,10 +53,10 @@ int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev,
 }
 
 int searchInternalNode(Page* node, uint64_t key) {
-    if (node->numCells <= 0) return -1;
     uint8_t size = node->numCells;
-    if (key < node->cells[0].key) return node->leftMost;
-    if (key >= node->cells[size-1].key) return node->cells[size-1].offset;
+    if (size <= 0) return -1;
+    if (key < node->cells[0].key) return MAX_CELL;
+    if (key >= node->cells[size-1].key) return size-1;
 
     uint8_t left = 0;
     uint8_t right = size;
@@ -282,7 +282,11 @@ int search(int fd, Page* root, uint64_t key, Cell* cell) {
     while (node->type == INTERNAL_NODE) {
         int pos = searchInternalNode(node, key);
         if (pos < 0) return -1;
-        off_t offset = node->cells[pos].offset;
+
+        off_t offset;
+        if (pos >= MAX_CELL) offset = node->leftMost;
+        else offset = node->cells[pos].offset;
+
         if (loadPage(fd, offset, node) < 0) return -1;
     }
 
