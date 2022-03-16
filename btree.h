@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#define MAX_CELL 126
+#define MAX_CELL 252
 
 typedef struct Cell Cell;
 typedef struct Page Page;
@@ -32,8 +32,6 @@ typedef struct {
 struct Cell {
     uint64_t key;
     off_t offset; // if page is leaf, it is the offset of record, else it is the offset of subpage.
-    Cell* nextCell;
-    Cell* prevCell;
 };
 
 typedef enum {
