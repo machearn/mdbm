@@ -34,13 +34,20 @@ ssize_t loadPage(int fd, off_t offset, Page* page) {
         return -1;
     }
 
-    return read(fd, page, 4096);
+    return read(fd, page, sizeof(Page));
 }
 
 ssize_t dumpPage(int fd, Page* page) {
     off_t offset = page->offset;
     if (lseek(fd, offset, SEEK_SET) < 0) return -1;
     return write(fd, page, sizeof(Page));
+}
+
+ssize_t loadHeader(int fd, Header* header) {
+    if (lseek(fd, 0, SEEK_SET) < 0) {
+        return -1;
+    }
+    return read(fd, header, sizeof(Header));
 }
 
 ssize_t dumpHeader(int fd, Header* header) {
