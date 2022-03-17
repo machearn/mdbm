@@ -367,7 +367,9 @@ int insert(int fd, Page* root, uint64_t key, off_t offset) {
 int deleteCell(int fd, Page* node, int pos) {
     if (node->numCells < 1) return -1;
 
-    memset((node->cells)+pos, 0, sizeof(Cell));
+    for (int i = pos; i < node->numCells-1; i++) {
+        memcpy((node->cells)+i, (node->cells)+i+1, sizeof(Cell));
+    }
     node->numCells--;
     if (dumpPage(fd, node) < 0) return -1;
     return 0;
