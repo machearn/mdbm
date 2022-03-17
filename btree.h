@@ -57,15 +57,6 @@ struct Page {
 
 int createTree(const char* fileName);
 
-Page* mallocPage();
-int freePage(Page** page);
-int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev);
-
-ssize_t dumpPage(int fd, Page* page);
-ssize_t loadPage(int fd, off_t offset, Page* page);
-ssize_t loadHeader(int fd, Header* header);
-ssize_t dumpHeader(int fd, Header* header);
-
 int insert(int fd, Page* root, uint64_t key, off_t offset);
 int search(int fd, Page* root, uint64_t key, Cell* Cell);
 int delete(int fd, Page* root, uint64_t key);

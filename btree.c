@@ -7,14 +7,8 @@
 #include "btree.h"
 
 // todo: optimize write page to disk
-int searchInternalNode(Page* node, uint64_t key);
-int searchLeafNode(Page* node, uint64_t key, Cell* Cell);
-
 Page* splitPage(int fd, Page* page);
-int insertInternalPage(int fd, Page* prev, Page* child, uint64_t key);
 int addInternalKey(int fd, Page* child, uint64_t key);
-int addCell(Page* leaf, int pos, uint64_t key, off_t offset);
-int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset);
 
 Page* mallocPage() {
     Page* p;
@@ -64,6 +58,31 @@ int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev)
     page->type = type;
     page->leftMost = -1;
     page->offset = -1;
+    return 0;
+}
+
+int addCell(Page* leaf, int pos, uint64_t key, off_t offset) {
+    Cell* begin = leaf->cells;
+    for (int i = leaf->numCells-1; i < pos; i--) {
+        memcpy(begin + i + 1, begin+i, sizeof(Cell));
+    }
+
+    begin[pos+1].key = key;
+    begin[pos+1].offset = offset;
+
+    leaf->numCells++;
+
+    return 0;
+}
+
+int deleteCell(int fd, Page* node, int pos) {
+    if (node->numCells < 1) return -1;
+
+    for (int i = pos; i < node->numCells-1; i++) {
+        memcpy((node->cells)+i, (node->cells)+i+1, sizeof(Cell));
+    }
+    node->numCells--;
+    if (dumpPage(fd, node) < 0) return -1;
     return 0;
 }
 
@@ -303,98 +322,6 @@ int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset) {
     return 0;
 }
 
-int search(int fd, Page* root, uint64_t key, Cell* cell) {
-    Page* node = root;
-    while (node->type == INTERNAL_NODE) {
-        int pos = searchInternalNode(node, key);
-        if (pos < 0) return -1;
-
-        off_t offset;
-        if (pos >= MAX_CELL) offset = node->leftMost;
-        else offset = node->cells[pos].offset;
-
-        if (loadPage(fd, offset, node) < 0) return -1;
-    }
-
-    return searchLeafNode(node, key, cell);
-}
-
-int addCell(Page* leaf, int pos, uint64_t key, off_t offset) {
-    Cell* begin = leaf->cells;
-    for (int i = leaf->numCells-1; i < pos; i--) {
-        memcpy(begin + i + 1, begin+i, sizeof(Cell));
-    }
-
-    begin[pos+1].key = key;
-    begin[pos+1].offset = offset;
-
-    leaf->numCells++;
-
-    return 0;
-}
-
-int insert(int fd, Page* root, uint64_t key, off_t offset) {
-    int pos = search(fd, root, key, NULL);
-    if (pos < 0) return -1;
-
-    Page* leaf = root;
-    if (leaf->cells[pos].key == key) return -1;
-
-    if (pos == MAX_CELL-1) return insertLeafPage(fd, leaf, key, offset);
-
-    if (leaf->numCells == MAX_CELL) {
-        Page* newLeaf = splitPage(fd, leaf);
-        int pos1 = searchLeafNode(leaf, key, NULL);
-        int pos2 = searchLeafNode(newLeaf, key, NULL);
-
-        if (pos2 == -1) {
-            addCell(leaf, pos1, key, offset);
-            dumpPage(fd, leaf);
-        } else {
-            addCell(newLeaf, pos2, key, offset);
-            dumpPage(fd, newLeaf);
-        }
-        free(newLeaf);
-        return 0;
-    }
-
-    addCell(leaf, pos, key, offset);
-    dumpPage(fd, leaf);
-
-    return 0;
-}
-
-int deleteCell(int fd, Page* node, int pos) {
-    if (node->numCells < 1) return -1;
-
-    for (int i = pos; i < node->numCells-1; i++) {
-        memcpy((node->cells)+i, (node->cells)+i+1, sizeof(Cell));
-    }
-    node->numCells--;
-    if (dumpPage(fd, node) < 0) return -1;
-    return 0;
-}
-
-int delete(int fd, Page* root, uint64_t key) {
-    int pos = search(fd, root, key, NULL);
-    if (pos < 0) return -1;
-
-    Page* leaf = root;
-    if (leaf->cells[pos].key != key) return -1;
-
-    return deleteCell(fd, leaf, pos);
-}
-
-int update(int fd, Page* root, uint64_t key, Cell* cell) {
-    int pos = search(fd, root, key, NULL);
-    if (pos < 0) return -1;
-
-    Page* leaf = root;
-    if (leaf->cells[pos].key != key) return -1;
-    memcpy((leaf->cells)+pos, cell, sizeof(Cell));
-    return 0;
-}
-
 int createTree(const char* fileName) {
     Header header;
     header.magicNumber = 0x1234;
@@ -456,3 +383,72 @@ int createTree(const char* fileName) {
     write(fd, &header, sizeof(Header));
     return 0;
 }
+
+int search(int fd, Page* root, uint64_t key, Cell* cell) {
+    Page* node = root;
+    while (node->type == INTERNAL_NODE) {
+        int pos = searchInternalNode(node, key);
+        if (pos < 0) return -1;
+
+        off_t offset;
+        if (pos >= MAX_CELL) offset = node->leftMost;
+        else offset = node->cells[pos].offset;
+
+        if (loadPage(fd, offset, node) < 0) return -1;
+    }
+
+    return searchLeafNode(node, key, cell);
+}
+
+int insert(int fd, Page* root, uint64_t key, off_t offset) {
+    int pos = search(fd, root, key, NULL);
+    if (pos < 0) return -1;
+
+    Page* leaf = root;
+    if (leaf->cells[pos].key == key) return -1;
+
+    if (pos == MAX_CELL-1) return insertLeafPage(fd, leaf, key, offset);
+
+    if (leaf->numCells == MAX_CELL) {
+        Page* newLeaf = splitPage(fd, leaf);
+        int pos1 = searchLeafNode(leaf, key, NULL);
+        int pos2 = searchLeafNode(newLeaf, key, NULL);
+
+        if (pos2 == -1) {
+            addCell(leaf, pos1, key, offset);
+            dumpPage(fd, leaf);
+        } else {
+            addCell(newLeaf, pos2, key, offset);
+            dumpPage(fd, newLeaf);
+        }
+        free(newLeaf);
+        return 0;
+    }
+
+    addCell(leaf, pos, key, offset);
+    dumpPage(fd, leaf);
+
+    return 0;
+}
+
+int delete(int fd, Page* root, uint64_t key) {
+    int pos = search(fd, root, key, NULL);
+    if (pos < 0) return -1;
+
+    Page* leaf = root;
+    if (leaf->cells[pos].key != key) return -1;
+
+    return deleteCell(fd, leaf, pos);
+}
+
+int update(int fd, Page* root, uint64_t key, Cell* cell) {
+    int pos = search(fd, root, key, NULL);
+    if (pos < 0) return -1;
+
+    Page* leaf = root;
+    if (leaf->cells[pos].key != key) return -1;
+    memcpy((leaf->cells)+pos, cell, sizeof(Cell));
+    return 0;
+}
+
+#pragma clang diagnostic pop
