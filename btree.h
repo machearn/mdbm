@@ -57,10 +57,10 @@ struct Page {
 
 int createTree(const char* fileName);
 
-int insert(int fd, Page* root, uint64_t key, off_t offset);
-int search(int fd, Page* root, uint64_t key, Cell* Cell);
-int delete(int fd, Page* root, uint64_t key);
-int update(int fd, Page* root, uint64_t key, Cell* cell);
+int insert(int fd, Header* header, uint64_t key, off_t offset);
+int search(int fd, Header* header, Page* node, uint64_t key, Cell* Cell);
+int delete(int fd, Header* header, uint64_t key);
+int update(int fd, Header* header, uint64_t key, Cell* cell);
 
 
 #endif //MDBM_BTREE_H
