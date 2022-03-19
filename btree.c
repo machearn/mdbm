@@ -7,7 +7,6 @@
 #include "btree.h"
 
 // todo: reduce header object in memory
-// todo: optimize initialize page
 Page* splitPage(int fd, Page* page);
 int addInternalKey(int fd, Page* child, uint64_t key);
 
@@ -50,21 +49,21 @@ ssize_t dumpHeader(int fd, Header* header) {
     return write(fd, header, sizeof(Header));
 }
 
-int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev) {
+int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev, off_t next, off_t offset, off_t leftMost) {
     page->numCells = 0;
     page->isRoot = isRoot;
     page->parent = parent;
-    page->nextPage = -1;
+    page->nextPage = next;
     page->prevPage = prev;
     page->type = type;
-    page->leftMost = -1;
-    page->offset = -1;
+    page->leftMost = leftMost;
+    page->offset = offset;
     return 0;
 }
 
 int addCell(Page* leaf, int pos, uint64_t key, off_t offset) {
     Cell* begin = leaf->cells;
-    for (int i = leaf->numCells-1; i < pos; i--) {
+    for (int i = leaf->numCells-1; i > pos; i--) {
         memcpy(begin + i + 1, begin+i, sizeof(Cell));
     }
 
@@ -136,7 +135,9 @@ Page* splitPage(int fd, Page* page) {
     loadHeader(fd, &header);
 
     Page* newPage = mallocPage();
-    initPage(newPage, 0, page->type, page->parent, page->offset);
+
+    off_t off = recover;
+    initPage(newPage, 0, page->type, page->parent, page->offset, page->nextPage, off, -1);
 
     uint8_t num = page->numCells;
     uint8_t half = num / 2;
@@ -148,11 +149,7 @@ Page* splitPage(int fd, Page* page) {
         memcpy(newBegin+i-half, begin+i, sizeof(Cell));
     }
 
-    off_t off = recover;
-
     newPage->numCells = num - half;
-    newPage->nextPage = page->nextPage;
-    newPage->offset = off;
 
     page->numCells = half;
     page->isRoot = 0;
@@ -162,12 +159,7 @@ Page* splitPage(int fd, Page* page) {
 
     if (page->isRoot) {
         Page* newRoot = mallocPage();
-        initPage(newRoot, 1, INTERNAL_NODE, -1, -1);
-
-        newRoot->leftMost = page->offset;
-        newRoot->numCells = 1;
-        newRoot->offset = off;
-        newRoot->cells->key = newPage->cells->key;
+        initPage(newRoot, 1, INTERNAL_NODE, -1, -1, -1, off, page->offset);
 
         header.nodeNumber++;
         header.height++;
@@ -198,7 +190,7 @@ Page* splitPage(int fd, Page* page) {
             return NULL;
         }
 
-        newRoot->cells->offset = newPage->offset;
+        addCell(newRoot, -1, newPage->cells->key, newPage->offset);
         if (dumpPage(fd, newRoot) < 0) {
             ftruncate(fd, recover);
             freePage(&newRoot);
@@ -232,14 +224,12 @@ int insertInternalPage(int fd, Page* prev, Page* child, uint64_t key) {
     loadHeader(fd, &header);
 
     Page* newPage = mallocPage();
-    initPage(newPage, 0, INTERNAL_NODE, prev->parent, prev->offset);
 
     off_t off = recover;
+    initPage(newPage, 0, INTERNAL_NODE, prev->parent, prev->offset, -1, off, -1);
 
-    newPage->cells->key = key;
-    newPage->cells->offset = child->offset;
-    newPage->offset = off;
-    newPage->numCells = 1;
+    addCell(newPage, -1, key, child->offset);
+
     prev->nextPage = off;
     header.nodeNumber++;
 
@@ -251,12 +241,7 @@ int insertInternalPage(int fd, Page* prev, Page* child, uint64_t key) {
 
     if (prev->isRoot) {
         Page* newRoot = mallocPage();
-        initPage(newRoot, 1, INTERNAL_NODE, -1, -1);
-
-        newRoot->leftMost = prev->offset;
-        newRoot->numCells = 1;
-        newRoot->offset = off;
-        newRoot->cells->key = newPage->cells->key;
+        initPage(newRoot, 1, INTERNAL_NODE, -1, -1, -1, off, prev->offset);
 
         header.nodeNumber++;
         header.height++;
@@ -288,7 +273,7 @@ int insertInternalPage(int fd, Page* prev, Page* child, uint64_t key) {
             return -1;
         }
 
-        newRoot->cells->offset = newPage->offset;
+        addCell(newRoot, -1, newPage->cells->key, newPage->offset);
         if (dumpPage(fd, newRoot) < 0) {
             ftruncate(fd, recover);
             freePage(&newRoot);
@@ -354,16 +339,15 @@ int addInternalKey(int fd, Page* child, uint64_t key) {
 }
 
 int insertLeafPage(int fd, Page* prev, uint64_t key, off_t offset) {
+    off_t recover;
+    if ((recover = lseek(fd, 0, SEEK_END)) < 0) return -1;
+
     Page* newLeaf = mallocPage();
-    initPage(newLeaf, 0, LEAF_NODE, prev->parent, prev->offset);
-    newLeaf->cells->key = key;
-    newLeaf->cells->offset = offset;
 
-    off_t off;
-    if ((off = lseek(fd, 0, SEEK_END)) < 0) return -1;
-    off_t recover = off;
+    off_t off = recover;
+    initPage(newLeaf, 0, LEAF_NODE, prev->parent, prev->offset, -1, off, -1);
+    addCell(newLeaf, -1, key, offset);
 
-    newLeaf->offset = off;
     prev->nextPage = newLeaf->offset;
 
     if (dumpPage(fd, newLeaf) < 0 || dumpPage(fd, prev) < 0) {
@@ -393,7 +377,7 @@ int createTree(const char* fileName) {
     write(fd, &header, sizeof(Header));
 
     Page* root = mallocPage();
-    initPage(root, 1, INTERNAL_NODE, -1, -1);
+    initPage(root, 1, INTERNAL_NODE, -1, -1, -1, -1, -1);
     if ((root->offset = lseek(fd, 0, SEEK_END)) < 0) {
         freePage(&root);
         return -1;
@@ -402,7 +386,7 @@ int createTree(const char* fileName) {
     dumpPage(fd, root);
 
     Page* leftLeaf = mallocPage();
-    initPage(leftLeaf, 0, LEAF_NODE, root->offset, -1);
+    initPage(leftLeaf, 0, LEAF_NODE, root->offset, -1, -1, -1, -1);
     if ((leftLeaf->offset = lseek(fd, 0, SEEK_END)) < 0) {
         freePage(&root);
         freePage(&leftLeaf);
@@ -414,16 +398,14 @@ int createTree(const char* fileName) {
     freePage(&leftLeaf);
 
     Page* rightLeaf = mallocPage();
-    initPage(rightLeaf, 0, LEAF_NODE, root->offset, leftLeaf->offset);
+    initPage(rightLeaf, 0, LEAF_NODE, root->offset, leftLeaf->offset, -1, -1, -1);
     if ((rightLeaf->offset = lseek(fd, 0, SEEK_END)) < 0) {
         freePage(&root);
         freePage(&rightLeaf);
         return -1;
     }
     dumpPage(fd, rightLeaf);
-    root->cells->key = MAX_CELL;
-    root->cells->offset = rightLeaf->offset;
-    root->numCells = 1;
+    addCell(root, -1, MAX_CELL, rightLeaf->offset);
 
     freePage(&rightLeaf);
 
