@@ -55,6 +55,8 @@ struct Page {
     char padding[16];
 };
 
+int openIndex(const char* filename, Header* header);
+
 int createTree(const char* fileName);
 
 int insert(int fd, Header* header, uint64_t key, off_t offset);

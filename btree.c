@@ -360,6 +360,12 @@ int insertLeafPage(int fd, Header* header, Page* prev, uint64_t key, off_t offse
     return ret;
 }
 
+int openIndex(const char* filename, Header* header) {
+    int fd = open(filename, O_RDWR);
+    loadHeader(fd, header);
+    return fd;
+}
+
 int createTree(const char* fileName) {
     Header header;
     header.magicNumber = 0x1234;
