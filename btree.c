@@ -6,6 +6,7 @@
 
 #include "btree.h"
 
+//todo: try to move the code handling root-prev into a function
 Page* splitPage(int fd, Header* header, Page* page);
 int addInternalKey(int fd, Header* header, Page* child, uint64_t key);
 
@@ -130,6 +131,9 @@ Page* splitPage(int fd, Header* header, Page* page) {
     off_t recover;
     if ((recover = lseek(fd, 0, SEEK_END)) < 0) return NULL;
 
+    Page* recoverPage = mallocPage();
+    memcpy(recoverPage, page, sizeof(Page));
+
     Page* newPage = mallocPage();
 
     off_t off = recover;
@@ -189,6 +193,7 @@ Page* splitPage(int fd, Header* header, Page* page) {
         addCell(newRoot, -1, newPage->cells->key, newPage->offset);
         if (dumpPage(fd, newRoot) < 0) {
             ftruncate(fd, recover);
+            while(dumpPage(fd, recoverPage));
             freePage(&newRoot);
             freePage(&newPage);
             return NULL;
@@ -200,21 +205,32 @@ Page* splitPage(int fd, Header* header, Page* page) {
             freePage(&newPage);
             return NULL;
         }
-        addInternalKey(fd, header, page, newPage->cells->key);
+        int ret = addInternalKey(fd, header, page, newPage->cells->key);
+        freePage(&newPage);
+        if (ret < 0) {
+            ftruncate(fd, recover);
+            while(dumpPage(fd, recoverPage) < 0);
+            return NULL;
+        }
     }
 
     if (dumpHeader(fd, header) < 0) {
         ftruncate(fd, recover);
+        while(dumpPage(fd, recoverPage) < 0);
         freePage(&newPage);
         return NULL;
     }
     return newPage;
 }
 
-// todo: when error occurred, undo all the write operation
 int insertInternalPage(int fd, Header* header, Page* prev, Page* child, uint64_t key) {
     off_t recover;
     if ((recover = lseek(fd, 0, SEEK_END)) < 0) return -1;
+
+    Page* recoverPrev = mallocPage();
+    memcpy(recoverPrev, prev, sizeof(Page));
+    Page* recoverChild = mallocPage();
+    memcpy(recoverChild, child, sizeof(Page));
 
     Page* newPage = mallocPage();
 
@@ -261,6 +277,8 @@ int insertInternalPage(int fd, Header* header, Page* prev, Page* child, uint64_t
         child->parent = off;
         if (dumpPage(fd, newPage) < 0 || dumpPage(fd, prev) < 0 || dumpPage(fd, child) < 0) {
             ftruncate(fd, recover);
+            while(dumpPage(fd, recoverPrev) < 0);
+            while(dumpPage(fd, recoverChild) < 0);
             freePage(&newRoot);
             freePage(&newPage);
             return -1;
@@ -269,6 +287,8 @@ int insertInternalPage(int fd, Header* header, Page* prev, Page* child, uint64_t
         addCell(newRoot, -1, newPage->cells->key, newPage->offset);
         if (dumpPage(fd, newRoot) < 0) {
             ftruncate(fd, recover);
+            while(dumpPage(fd, recoverPrev) < 0);
+            while(dumpPage(fd, recoverChild) < 0);
             freePage(&newRoot);
             freePage(&newPage);
             return -1;
@@ -280,13 +300,22 @@ int insertInternalPage(int fd, Header* header, Page* prev, Page* child, uint64_t
             freePage(&newPage);
             return -1;
         }
-        addInternalKey(fd, header, newPage, key);
+        int ret = addInternalKey(fd, header, newPage, key);
+        freePage(&newPage);
+        if (ret < 0) {
+            ftruncate(fd, recover);
+            while(dumpPage(fd, recoverPrev) < 0);
+            return -1;
+        }
+        return 0;
     }
 
     freePage(&newPage);
 
     if (dumpHeader(fd, header) < 0) {
         ftruncate(fd, recover);
+        while(dumpPage(fd, recoverPrev) < 0);
+        while(dumpPage(fd, recoverChild) < 0);
         return -1;
     }
     return 0;
@@ -303,10 +332,15 @@ int addInternalKey(int fd, Header* header, Page* child, uint64_t key) {
 
     if (node->cells[pos].key == key) return -1;
 
-    if (pos == MAX_CELL-1) return insertInternalPage(fd, header, node, child, key);
+    if (pos == MAX_CELL-1) {
+        int ret = insertInternalPage(fd, header, node, child, key);
+        freePage(&node);
+        return ret;
+    }
 
     if (node->numCells == MAX_CELL) {
-        Page* newNode = splitPage(fd, header, node);
+        Page* newNode;
+        if (!(newNode = splitPage(fd, header, node))) return -1;
         int pos1 = searchInternalNode(node, key);
         int pos2 = searchInternalNode(newNode, key);
 
@@ -323,10 +357,6 @@ int addInternalKey(int fd, Header* header, Page* child, uint64_t key) {
         return ret;
     }
 
-    Cell* begin = node->cells;
-    for (int i = node->numCells-1; i < pos; i--) {
-        memcpy(begin+i+1, begin+i, sizeof(Cell));
-    }
     addCell(node, pos, key, child->offset);
     int ret = (int) dumpPage(fd, node);
     freePage(&node);
@@ -337,6 +367,9 @@ int addInternalKey(int fd, Header* header, Page* child, uint64_t key) {
 int insertLeafPage(int fd, Header* header, Page* prev, uint64_t key, off_t offset) {
     off_t recover;
     if ((recover = lseek(fd, 0, SEEK_END)) < 0) return -1;
+
+    Page* recoverPrev = mallocPage();
+    memcpy(recoverPrev, prev, sizeof(Page));
 
     Page* newLeaf = mallocPage();
 
@@ -354,6 +387,7 @@ int insertLeafPage(int fd, Header* header, Page* prev, uint64_t key, off_t offse
     int ret = addInternalKey(fd, header, newLeaf, key);
     if (ret < 0) {
         ftruncate(fd, recover);
+        while (dumpPage(fd, recoverPrev) < 0);
         return -1;
     }
     freePage(&newLeaf);
