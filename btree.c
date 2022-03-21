@@ -6,8 +6,8 @@
 
 #include "btree.h"
 
-//todo: try to move the code handling root-prev into a function
 Page* splitPage(int fd, Header* header, Page* page);
+
 int addInternalKey(int fd, Header* header, Page* child, uint64_t key);
 
 Page* mallocPage() {
@@ -32,6 +32,8 @@ ssize_t loadPage(int fd, off_t offset, Page* page) {
 }
 
 ssize_t dumpPage(int fd, Page* page) {
+    if (!page) return 0;
+
     off_t offset = page->offset;
     if (lseek(fd, offset, SEEK_SET) < 0) return -1;
     return write(fd, page, sizeof(Page));
@@ -49,7 +51,8 @@ ssize_t dumpHeader(int fd, Header* header) {
     return write(fd, header, sizeof(Header));
 }
 
-int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev, off_t next, off_t offset, off_t leftMost) {
+int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev, off_t next,
+             off_t offset, off_t leftMost) {
     page->numCells = 0;
     page->isRoot = isRoot;
     page->parent = parent;
@@ -63,12 +66,12 @@ int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev,
 
 int addCell(Page* leaf, int pos, uint64_t key, off_t offset) {
     Cell* begin = leaf->cells;
-    for (int i = leaf->numCells-1; i > pos; i--) {
-        memcpy(begin + i + 1, begin+i, sizeof(Cell));
+    for (int i = leaf->numCells - 1; i > pos; i--) {
+        memcpy(begin + i + 1, begin + i, sizeof(Cell));
     }
 
-    begin[pos+1].key = key;
-    begin[pos+1].offset = offset;
+    begin[pos + 1].key = key;
+    begin[pos + 1].offset = offset;
 
     leaf->numCells++;
 
@@ -78,8 +81,8 @@ int addCell(Page* leaf, int pos, uint64_t key, off_t offset) {
 int deleteCell(int fd, Page* node, int pos) {
     if (node->numCells < 1) return -1;
 
-    for (int i = pos; i < node->numCells-1; i++) {
-        memcpy((node->cells)+i, (node->cells)+i+1, sizeof(Cell));
+    for (int i = pos; i < node->numCells - 1; i++) {
+        memcpy((node->cells) + i, (node->cells) + i + 1, sizeof(Cell));
     }
     node->numCells--;
     if (dumpPage(fd, node) < 0) return -1;
@@ -97,14 +100,13 @@ int searchInternalNode(Page* node, uint64_t key) {
     while (left < right) {
         uint8_t mid = left + (right - left) / 2;
         if (node->cells[mid].key <= key) {
-            left = mid+1;
-        }
-        else {
+            left = mid + 1;
+        } else {
             right = mid;
         }
     }
 
-    return (int)left-1;
+    return (int) left - 1;
 }
 
 int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
@@ -115,16 +117,56 @@ int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
     while (left < right) {
         uint8_t mid = left + (right - left) / 2;
         if (node->cells[mid].key <= key) {
-            left = mid+1;
-        }
-        else {
+            left = mid + 1;
+        } else {
             right = mid;
         }
     }
 
     if (cell)
-        memcpy((void*)((node->cells)+left-1), (void*)cell, sizeof(Cell));
-    return (int)left-1;
+        memcpy((void*) ((node->cells) + left - 1), (void*) cell, sizeof(Cell));
+    return (int) left - 1;
+}
+
+int addRoot(int fd, Header* header, Page* root, Page* newPage, Page* child, off_t rootOffset) {
+    Page* newRoot = mallocPage();
+    initPage(newRoot, 1, INTERNAL_NODE, -1, -1, -1, rootOffset, root->offset);
+
+    header->nodeNumber++;
+    header->height++;
+    header->rootOffset = rootOffset;
+
+    root->isRoot = 1;
+    root->parent = rootOffset;
+    newPage->parent = rootOffset;
+
+    if (dumpPage(fd, newRoot) < 0) {
+        freePage(&newRoot);
+        return -1;
+    }
+
+    off_t off;
+    if ((off = lseek(fd, 0, SEEK_END)) < 0) {
+        freePage(&newRoot);
+        return -1;
+    }
+    newPage->offset = off;
+    root->nextPage = newPage->offset;
+    if (child) child->parent = off;
+    if (dumpPage(fd, newPage) < 0 || dumpPage(fd, root) < 0 || dumpPage(fd, child) < 0) {
+        freePage(&newRoot);
+        return -1;
+    }
+
+    addCell(newRoot, -1, newPage->cells->key, newPage->offset);
+    int ret = (int) dumpPage(fd, newRoot);
+    freePage(&newRoot);
+    return ret;
+}
+
+int addParentKey(int fd, Header* header, Page* prev, Page* newPage, uint64_t key) {
+    if (dumpPage(fd, newPage) < 0 || dumpPage(fd, prev) < 0) return -1;
+    return addInternalKey(fd, header, newPage, key);
 }
 
 Page* splitPage(int fd, Header* header, Page* page) {
@@ -146,7 +188,7 @@ Page* splitPage(int fd, Header* header, Page* page) {
     Cell* newBegin = newPage->cells;
 
     for (int i = half; i < num; i++) {
-        memcpy(newBegin+i-half, begin+i, sizeof(Cell));
+        memcpy(newBegin + i - half, begin + i, sizeof(Cell));
     }
 
     newPage->numCells = num - half;
@@ -158,68 +200,32 @@ Page* splitPage(int fd, Header* header, Page* page) {
     header->nodeNumber++;
 
     if (page->isRoot) {
-        Page* newRoot = mallocPage();
-        initPage(newRoot, 1, INTERNAL_NODE, -1, -1, -1, off, page->offset);
-
-        header->nodeNumber++;
-        header->height++;
-        header->rootOffset = off;
-
-        page->parent = off;
-        newPage->parent = off;
-        page->isRoot = 0;
-
-        if (dumpPage(fd, newRoot) < 0) {
-            freePage(&newPage);
-            freePage(&newRoot);
-            return NULL;
-        }
-
-        if ((off = lseek(fd, 0, SEEK_END)) < 0) {
+        if (addRoot(fd, header, page, newPage, NULL, off) < 0) {
             ftruncate(fd, recover);
-            freePage(&newRoot);
+            while (dumpPage(fd, recoverPage) < 0);
             freePage(&newPage);
+            freePage(&recoverPage);
             return NULL;
         }
-        newPage->offset = off;
-        page->nextPage = newPage->offset;
-        if (dumpPage(fd, newPage) < 0 || dumpPage(fd, page) < 0) {
-            ftruncate(fd, recover);
-            freePage(&newRoot);
-            freePage(&newPage);
-            return NULL;
-        }
-
-        addCell(newRoot, -1, newPage->cells->key, newPage->offset);
-        if (dumpPage(fd, newRoot) < 0) {
-            ftruncate(fd, recover);
-            while(dumpPage(fd, recoverPage));
-            freePage(&newRoot);
-            freePage(&newPage);
-            return NULL;
-        }
-        freePage(&newRoot);
     } else {
-        if (dumpPage(fd, newPage) < 0 || dumpPage(fd, page) < 0) {
+        if (addParentKey(fd, header, page, newPage, newPage->cells->key) < 0) {
             ftruncate(fd, recover);
+            while (dumpPage(fd, recoverPage) < 0);
             freePage(&newPage);
-            return NULL;
-        }
-        int ret = addInternalKey(fd, header, page, newPage->cells->key);
-        freePage(&newPage);
-        if (ret < 0) {
-            ftruncate(fd, recover);
-            while(dumpPage(fd, recoverPage) < 0);
+            freePage(&recoverPage);
             return NULL;
         }
     }
 
+    freePage(&newPage);
     if (dumpHeader(fd, header) < 0) {
         ftruncate(fd, recover);
-        while(dumpPage(fd, recoverPage) < 0);
-        freePage(&newPage);
+        while (dumpPage(fd, recoverPage) < 0);
+        freePage(&recoverPage);
         return NULL;
     }
+    freePage(&recoverPage);
+
     return newPage;
 }
 
@@ -249,75 +255,38 @@ int insertInternalPage(int fd, Header* header, Page* prev, Page* child, uint64_t
     }
 
     if (prev->isRoot) {
-        Page* newRoot = mallocPage();
-        initPage(newRoot, 1, INTERNAL_NODE, -1, -1, -1, off, prev->offset);
-
-        header->nodeNumber++;
-        header->height++;
-        header->rootOffset = off;
-
-        prev->isRoot = 0;
-        prev->parent = off;
-        newPage->parent = off;
-
-        if (dumpPage(fd, newRoot) < 0) {
-            freePage(&newPage);
-            freePage(&newRoot);
-            return -1;
-        }
-
-        if ((off = lseek(fd, 0, SEEK_END)) < 0) {
+        if (addRoot(fd, header, prev, newPage, child, off) < 0) {
             ftruncate(fd, recover);
-            freePage(&newRoot);
+            while (dumpPage(fd, recoverPrev) < 0);
+            while (dumpPage(fd, recoverChild) < 0);
             freePage(&newPage);
+            freePage(&recoverPrev);
+            freePage(&recoverChild);
             return -1;
         }
-        newPage->offset = off;
-        prev->nextPage = newPage->offset;
-        child->parent = off;
-        if (dumpPage(fd, newPage) < 0 || dumpPage(fd, prev) < 0 || dumpPage(fd, child) < 0) {
-            ftruncate(fd, recover);
-            while(dumpPage(fd, recoverPrev) < 0);
-            while(dumpPage(fd, recoverChild) < 0);
-            freePage(&newRoot);
-            freePage(&newPage);
-            return -1;
-        }
-
-        addCell(newRoot, -1, newPage->cells->key, newPage->offset);
-        if (dumpPage(fd, newRoot) < 0) {
-            ftruncate(fd, recover);
-            while(dumpPage(fd, recoverPrev) < 0);
-            while(dumpPage(fd, recoverChild) < 0);
-            freePage(&newRoot);
-            freePage(&newPage);
-            return -1;
-        }
-        freePage(&newRoot);
     } else {
-        if (dumpPage(fd, newPage) < 0 || dumpPage(fd, prev) < 0) {
+        if (addParentKey(fd, header, prev, newPage, key) < 0) {
             ftruncate(fd, recover);
+            while (dumpPage(fd, recoverPrev) < 0);
             freePage(&newPage);
+            freePage(&recoverPrev);
+            freePage(&recoverChild);
             return -1;
         }
-        int ret = addInternalKey(fd, header, newPage, key);
-        freePage(&newPage);
-        if (ret < 0) {
-            ftruncate(fd, recover);
-            while(dumpPage(fd, recoverPrev) < 0);
-            return -1;
-        }
-        return 0;
     }
 
     freePage(&newPage);
-
     if (dumpHeader(fd, header) < 0) {
         ftruncate(fd, recover);
-        while(dumpPage(fd, recoverPrev) < 0);
-        while(dumpPage(fd, recoverChild) < 0);
+        while (dumpPage(fd, recoverPrev) < 0);
+        while (dumpPage(fd, recoverChild) < 0);
+        freePage(&recoverPrev);
+        freePage(&recoverChild);
         return -1;
     }
+    freePage(&recoverPrev);
+    freePage(&recoverChild);
+
     return 0;
 }
 
@@ -332,7 +301,7 @@ int addInternalKey(int fd, Header* header, Page* child, uint64_t key) {
 
     if (node->cells[pos].key == key) return -1;
 
-    if (pos == MAX_CELL-1) {
+    if (pos == MAX_CELL - 1) {
         int ret = insertInternalPage(fd, header, node, child, key);
         freePage(&node);
         return ret;
@@ -347,10 +316,10 @@ int addInternalKey(int fd, Header* header, Page* child, uint64_t key) {
         int ret;
         if (pos2 == -1) {
             addCell(node, pos1, key, child->offset);
-            ret = (int)dumpPage(fd, node);
+            ret = (int) dumpPage(fd, node);
         } else {
             addCell(newNode, pos2, key, child->offset);
-            ret = (int)dumpPage(fd, newNode);
+            ret = (int) dumpPage(fd, newNode);
         }
         freePage(&node);
         freePage(&newNode);
@@ -492,7 +461,7 @@ int insert(int fd, Header* header, uint64_t key, off_t offset) {
         return -1;
     }
 
-    if (pos == MAX_CELL-1) {
+    if (pos == MAX_CELL - 1) {
         int ret = insertLeafPage(fd, header, leaf, key, offset);
         freePage(&leaf);
         return ret;
@@ -507,10 +476,10 @@ int insert(int fd, Header* header, uint64_t key, off_t offset) {
         int ret;
         if (pos2 == -1) {
             addCell(leaf, pos1, key, offset);
-            ret = (int)dumpPage(fd, leaf);
+            ret = (int) dumpPage(fd, leaf);
         } else {
             addCell(newLeaf, pos2, key, offset);
-            ret = (int)dumpPage(fd, newLeaf);
+            ret = (int) dumpPage(fd, newLeaf);
         }
         freePage(&newLeaf);
         freePage(&leaf);
@@ -518,7 +487,7 @@ int insert(int fd, Header* header, uint64_t key, off_t offset) {
     }
 
     addCell(leaf, pos, key, offset);
-    int ret = (int)dumpPage(fd, leaf);
+    int ret = (int) dumpPage(fd, leaf);
     freePage(&leaf);
     return ret;
 }
@@ -558,7 +527,7 @@ int update(int fd, Header* header, uint64_t key, Cell* cell) {
         freePage(&leaf);
         return -1;
     }
-    memcpy((leaf->cells)+pos, cell, sizeof(Cell));
+    memcpy((leaf->cells) + pos, cell, sizeof(Cell));
     freePage(&leaf);
     return 0;
 }
