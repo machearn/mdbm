@@ -45,6 +45,9 @@ static DB* dbAlloc(size_t nameLen) {
 }
 
 static void dbFree(DB** db) {
+    if (!(*db)) return;
+    if ((*db)->idxFd >= 0) close((*db)->idxFd);
+    if ((*db)->dataFd >= 0) close((*db)->dataFd);
     free((*db)->header);
     free((*db)->name);
     free(*db);
@@ -111,4 +114,8 @@ DB* dbOpen(const char* name, int oflag, ...) {
     free(idxName);
     free(dataName);
     return db;
+}
+
+void dbClose(DB* db) {
+    dbFree(&db);
 }

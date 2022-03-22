@@ -17,7 +17,7 @@ typedef struct {
 }DB;
 
 DB* dbOpen(const char* name, int oflag, ...);
-int dbClose(DB* db);
+void dbClose(DB* db);
 
 void* dbFetch(DB* db, uint64_t key);
 int dbStore(DB* db, uint64_t key, void* data, int flag);
