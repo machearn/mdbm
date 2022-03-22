@@ -6,5 +6,5 @@ set(CMAKE_C_STANDARD 11)
 
 add_library(mdbm btree.c)
 
-add_executable(main main.c)
+add_executable(main main.c mdbm.c)
 target_link_libraries(main mdbm)
