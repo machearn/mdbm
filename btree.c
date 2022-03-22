@@ -39,10 +39,8 @@ ssize_t dumpPage(int fd, Page* page) {
     return write(fd, page, sizeof(Page));
 }
 
-ssize_t loadHeader(int fd, Header* header) {
-    if (lseek(fd, 0, SEEK_SET) < 0) {
-        return -1;
-    }
+ssize_t loadHeader(const char* fileName, Header* header) {
+    int fd = open(fileName, O_RDONLY);
     return read(fd, header, sizeof(Header));
 }
 
@@ -363,13 +361,13 @@ int insertLeafPage(int fd, Header* header, Page* prev, uint64_t key, off_t offse
     return ret;
 }
 
-int openIndex(const char* filename, Header* header) {
-    int fd = open(filename, O_RDWR);
-    loadHeader(fd, header);
+int openIndex(const char* filename, int oflag, Header* header) {
+    int fd = open(filename, oflag);
+    loadHeader(filename, header);
     return fd;
 }
 
-int createTree(const char* fileName) {
+int createTree(int fd) {
     Header header;
     header.magicNumber = 0x1234;
     header.orderNumber = MAX_CELL;
@@ -378,7 +376,6 @@ int createTree(const char* fileName) {
 
     header.rootOffset = sizeof(Header);
 
-    int fd = open(fileName, O_WRONLY);
     write(fd, &header, sizeof(Header));
 
     Page* root = mallocPage();
