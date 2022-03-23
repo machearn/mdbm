@@ -4,34 +4,7 @@
 
 #include "mdbm.h"
 
-static int lockRegion(int fd, int cmd, int type, off_t offset, int whence, off_t len);
 static DB* dbAlloc(size_t nameLen);
-
-static int lockRegion(int fd, int cmd, int type, off_t offset, int whence, off_t len) {
-    struct flock lock;
-
-    lock.l_type = (short) type;
-    lock.l_start = offset;
-    lock.l_whence = (short) whence;
-    lock.l_len = len;
-
-    return fcntl(fd, cmd, &lock);
-}
-
-#define readLock(fd, offset, whence, len) \
-    lockRegion((fd), F_SETLK, F_RDLCK, (offset), (whence), (len))
-
-#define readLockWait(fd, offset, whence, len) \
-    lockRegion((fd), F_SETLKW, F_RDLCK, (offset), (whence), (len))
-
-#define writeLock(fd, offset, whence, len) \
-    lockRegion((fd), F_SETLK, F_WRLCK, (offset), (whence), (len))
-
-#define writeLockWait(fd, offset, whence, len) \
-    lockRegion((fd), F_SETLKW, F_WRLCK, (offset), (whence), (len))
-
-#define unlock(fd, offset, whence, len) \
-    lockRegion((fd), F_SETLK, F_UNLCK, (offset), (whence), (len))
 
 static DB* dbAlloc(size_t nameLen) {
     Header* header = malloc(sizeof(Header));
@@ -118,4 +91,19 @@ DB* dbOpen(const char* name, int oflag, ...) {
 
 void dbClose(DB* db) {
     dbFree(&db);
+}
+
+//todo: add record lock
+void* dbFetch(DB* db, uint64_t key, size_t* dataLen) {
+    Cell* cell = malloc(sizeof(Cell));
+    int pos = search(db->idxFd, db->header, NULL, key, cell);
+    if (pos < 0 || cell->key != key) {
+        printf("not find");
+        return NULL;
+    }
+    lseek(db->dataFd, cell->offset, SEEK_SET);
+    read(db->dataFd, dataLen, sizeof(size_t));
+    void* data = malloc(*dataLen);
+    read(db->dataFd, data, *dataLen);
+    return data;
 }

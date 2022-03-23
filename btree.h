@@ -13,6 +13,7 @@
 
 #define MAX_CELL 252
 
+//todo: use record lock
 typedef struct Cell Cell;
 typedef struct Page Page;
 

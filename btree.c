@@ -121,8 +121,7 @@ int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
         }
     }
 
-    if (cell)
-        memcpy((void*) ((node->cells) + left - 1), (void*) cell, sizeof(Cell));
+    if (cell && left > 0) memcpy((void*) ((node->cells) + left - 1), (void*) cell, sizeof(Cell));
     return (int) left - 1;
 }
 
@@ -427,6 +426,11 @@ int createTree(int fd) {
 }
 
 int search(int fd, Header* header, Page* node, uint64_t key, Cell* cell) {
+    int flag = 0;
+    if (!node) {
+        node = mallocPage();
+        flag = 1;
+    }
     if (loadPage(fd, header->rootOffset, node) < 0) return -1;
     while (node->type == INTERNAL_NODE) {
         int pos = searchInternalNode(node, key);
@@ -439,7 +443,9 @@ int search(int fd, Header* header, Page* node, uint64_t key, Cell* cell) {
         if (loadPage(fd, offset, node) < 0) return -1;
     }
 
-    return searchLeafNode(node, key, cell);
+    int ret = searchLeafNode(node, key, cell);
+    if (flag) freePage(&node);
+    return ret;
 }
 
 int insert(int fd, Header* header, uint64_t key, off_t offset) {
