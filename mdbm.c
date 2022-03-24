@@ -145,3 +145,42 @@ int dbFetch(DB* db, uint64_t key, Record* record) {
     record->data = data;
     return 0;
 }
+
+int dbDelete(DB* db, uint64_t key) {
+    Cell* cell = malloc(sizeof(Cell));
+    if (delete(db->idxFd, db->header, key, cell) < 0) {
+        free(cell);
+        return -1;
+    }
+
+    if (writeLockWait(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
+        free(cell);
+        errno = EAGAIN;
+        return -1;
+    }
+
+    if (lseek(db->dataFd, cell->offset, SEEK_SET) < 0) {
+        free(cell);
+        return -1;
+    }
+    char* blank = malloc(cell->size);
+    if (blank == NULL) {
+        free(cell);
+        errno = ENOMEM;
+        return -1;
+    }
+    memset(blank, 0, cell->size);
+    ssize_t ret = write(db->dataFd, blank, cell->size);
+    free(blank);
+    free(cell);
+    if (ret < 0) {
+        errno = EIO;
+        return -1;
+    }
+
+    if (unlock(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
+        errno = EAGAIN;
+        return -1;
+    }
+    return 0;
+}

@@ -88,14 +88,14 @@ int addCell(Page* leaf, int pos, uint64_t key, off_t offset, size_t size) {
     return 0;
 }
 
-int deleteCell(int fd, Page* node, int pos) {
+int deleteCell(int fd, Page* node, int pos, Cell* cell) {
     if (node->numCells < 1) return -1;
+    memcpy(cell, node->cells + pos, sizeof(Cell));
 
     for (int i = pos; i < node->numCells - 1; i++) {
         memcpy((node->cells) + i, (node->cells) + i + 1, sizeof(Cell));
     }
     node->numCells--;
-    if (dumpPage(fd, node) < 0) return -1;
     return 0;
 }
 
@@ -507,7 +507,7 @@ int insert(int fd, Header* header, uint64_t key, off_t offset, size_t recordSize
     return ret;
 }
 
-int delete(int fd, Header* header, uint64_t key) {
+int delete(int fd, Header* header, uint64_t key, Cell* cell) {
     Page* node = mallocPage();
 
     int pos = search(fd, header, node, key, NULL);
@@ -523,7 +523,8 @@ int delete(int fd, Header* header, uint64_t key) {
         return -1;
     }
 
-    int ret = deleteCell(fd, leaf, pos);
+    int ret = deleteCell(fd, leaf, pos, cell);
+    if (dumpPage(fd, leaf) < 0) return -1;
     freePage(&leaf);
     return ret;
 }

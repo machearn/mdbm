@@ -64,7 +64,7 @@ int createTree(int fd);
 
 int insert(int fd, Header* header, uint64_t key, off_t offset, size_t recordSize);
 int search(int fd, Header* header, Page* node, uint64_t key, Cell* Cell);
-int delete(int fd, Header* header, uint64_t key);
+int delete(int fd, Header* header, uint64_t key, Cell* cell);
 int update(int fd, Header* header, uint64_t key, Cell* cell);
 
 
