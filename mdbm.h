@@ -6,6 +6,7 @@
 #define MDBM_MDBM_H
 
 #include <stdarg.h>
+#include <errno.h>
 
 #include "btree.h"
 #include "lock.h"

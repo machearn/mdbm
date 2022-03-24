@@ -93,17 +93,54 @@ void dbClose(DB* db) {
     dbFree(&db);
 }
 
-//todo: add record lock
 void* dbFetch(DB* db, uint64_t key, size_t* dataLen) {
     Cell* cell = malloc(sizeof(Cell));
     int pos = search(db->idxFd, db->header, NULL, key, cell);
     if (pos < 0 || cell->key != key) {
-        printf("not find");
+        errno = ENOENT;
         return NULL;
     }
+
     lseek(db->dataFd, cell->offset, SEEK_SET);
-    read(db->dataFd, dataLen, sizeof(size_t));
+    if (writeLockWait(db->dataFd, cell->offset, SEEK_SET, sizeof(size_t)) < 0) {
+        free(cell);
+        errno = EAGAIN;
+        return NULL;
+    }
+    if (read(db->dataFd, dataLen, sizeof(size_t)) < 0) {
+        free(cell);
+        errno = EIO;
+        return NULL;
+    }
+    if (unlock(db->dataFd, cell->offset, SEEK_SET, sizeof(size_t)) < 0) {
+        free(cell);
+        errno = EAGAIN;
+        return NULL;
+    }
+
     void* data = malloc(*dataLen);
-    read(db->dataFd, data, *dataLen);
+    if (data == NULL) {
+        free(cell);
+        errno = ENOMEM;
+        return NULL;
+    }
+    if (writeLockWait(db->dataFd, cell->offset+sizeof(size_t), SEEK_SET, *dataLen) < 0) {
+        free(data);
+        free(cell);
+        errno = EAGAIN;
+        return NULL;
+    }
+    if (read(db->dataFd, data, *dataLen) < 0) {
+        free(data);
+        free(cell);
+        errno = EIO;
+        return NULL;
+    }
+    if (unlock(db->dataFd, cell->offset+sizeof(size_t), SEEK_SET, *dataLen) < 0) {
+        free(data);
+        free(cell);
+        errno = EAGAIN;
+        return NULL;
+    }
     return data;
 }
