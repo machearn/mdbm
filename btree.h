@@ -13,7 +13,7 @@
 
 #include "lock.h"
 
-#define MAX_CELL 252
+#define MAX_CELL 168
 
 typedef struct Cell Cell;
 typedef struct Page Page;
@@ -29,10 +29,11 @@ typedef struct {
 }Header;
 
 /*
- * total size of Cell is 4*8 bytes
+ * total size of Cell is 3*8 bytes
  */
 struct Cell {
     uint64_t key;
+    size_t size; // if page is leaf, it is the size of record, else it is the size of subpage.
     off_t offset; // if page is leaf, it is the offset of record, else it is the offset of subpage.
 };
 
@@ -61,7 +62,7 @@ int openIndex(const char* filename, int oflag, Header* header);
 
 int createTree(int fd);
 
-int insert(int fd, Header* header, uint64_t key, off_t offset);
+int insert(int fd, Header* header, uint64_t key, off_t offset, size_t recordSize);
 int search(int fd, Header* header, Page* node, uint64_t key, Cell* Cell);
 int delete(int fd, Header* header, uint64_t key);
 int update(int fd, Header* header, uint64_t key, Cell* cell);

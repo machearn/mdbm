@@ -73,7 +73,7 @@ int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev,
     return 0;
 }
 
-int addCell(Page* leaf, int pos, uint64_t key, off_t offset) {
+int addCell(Page* leaf, int pos, uint64_t key, off_t offset, size_t size) {
     Cell* begin = leaf->cells;
     for (int i = leaf->numCells - 1; i > pos; i--) {
         memcpy(begin + i + 1, begin + i, sizeof(Cell));
@@ -81,6 +81,7 @@ int addCell(Page* leaf, int pos, uint64_t key, off_t offset) {
 
     begin[pos + 1].key = key;
     begin[pos + 1].offset = offset;
+    begin[pos + 1].size = size;
 
     leaf->numCells++;
 
@@ -166,7 +167,7 @@ int addRoot(int fd, Header* header, Page* root, Page* newPage, Page* child, off_
         return -1;
     }
 
-    addCell(newRoot, -1, newPage->cells->key, newPage->offset);
+    addCell(newRoot, -1, newPage->cells->key, newPage->offset, sizeof(Page));
     int ret = (int) dumpPage(fd, newRoot);
     freePage(&newRoot);
     return ret;
@@ -251,7 +252,7 @@ int insertInternalPage(int fd, Header* header, Page* prev, Page* child, uint64_t
     off_t off = recover;
     initPage(newPage, 0, INTERNAL_NODE, prev->parent, prev->offset, -1, off, -1);
 
-    addCell(newPage, -1, key, child->offset);
+    addCell(newPage, -1, key, child->offset, sizeof(Page));
 
     prev->nextPage = off;
     header->nodeNumber++;
@@ -323,10 +324,10 @@ int addInternalKey(int fd, Header* header, Page* child, uint64_t key) {
 
         int ret;
         if (pos2 == -1) {
-            addCell(node, pos1, key, child->offset);
+            addCell(node, pos1, key, child->offset, sizeof(Page));
             ret = (int) dumpPage(fd, node);
         } else {
-            addCell(newNode, pos2, key, child->offset);
+            addCell(newNode, pos2, key, child->offset, sizeof(Page));
             ret = (int) dumpPage(fd, newNode);
         }
         freePage(&node);
@@ -334,14 +335,14 @@ int addInternalKey(int fd, Header* header, Page* child, uint64_t key) {
         return ret;
     }
 
-    addCell(node, pos, key, child->offset);
+    addCell(node, pos, key, child->offset, sizeof(Page));
     int ret = (int) dumpPage(fd, node);
     freePage(&node);
 
     return ret;
 }
 
-int insertLeafPage(int fd, Header* header, Page* prev, uint64_t key, off_t offset) {
+int insertLeafPage(int fd, Header* header, Page* prev, uint64_t key, off_t offset, size_t recordSize) {
     off_t recover;
     if ((recover = lseek(fd, 0, SEEK_END)) < 0) return -1;
 
@@ -352,7 +353,7 @@ int insertLeafPage(int fd, Header* header, Page* prev, uint64_t key, off_t offse
 
     off_t off = recover;
     initPage(newLeaf, 0, LEAF_NODE, prev->parent, prev->offset, -1, off, -1);
-    addCell(newLeaf, -1, key, offset);
+    addCell(newLeaf, -1, key, offset, recordSize);
 
     prev->nextPage = newLeaf->offset;
 
@@ -417,7 +418,7 @@ int createTree(int fd) {
         return -1;
     }
     dumpPage(fd, rightLeaf);
-    addCell(root, -1, MAX_CELL, rightLeaf->offset);
+    addCell(root, -1, MAX_CELL, rightLeaf->offset, sizeof(Page));
 
     freePage(&rightLeaf);
 
@@ -459,7 +460,7 @@ int search(int fd, Header* header, Page* node, uint64_t key, Cell* cell) {
     return ret;
 }
 
-int insert(int fd, Header* header, uint64_t key, off_t offset) {
+int insert(int fd, Header* header, uint64_t key, off_t offset, size_t recordSize) {
     Page* node = mallocPage();
 
     int pos = search(fd, header, node, key, NULL);
@@ -476,7 +477,7 @@ int insert(int fd, Header* header, uint64_t key, off_t offset) {
     }
 
     if (pos == MAX_CELL - 1) {
-        int ret = insertLeafPage(fd, header, leaf, key, offset);
+        int ret = insertLeafPage(fd, header, leaf, key, offset, recordSize);
         freePage(&leaf);
         return ret;
     }
@@ -489,10 +490,10 @@ int insert(int fd, Header* header, uint64_t key, off_t offset) {
 
         int ret;
         if (pos2 == -1) {
-            addCell(leaf, pos1, key, offset);
+            addCell(leaf, pos1, key, offset, recordSize);
             ret = (int) dumpPage(fd, leaf);
         } else {
-            addCell(newLeaf, pos2, key, offset);
+            addCell(newLeaf, pos2, key, offset, recordSize);
             ret = (int) dumpPage(fd, newLeaf);
         }
         freePage(&newLeaf);
@@ -500,7 +501,7 @@ int insert(int fd, Header* header, uint64_t key, off_t offset) {
         return ret;
     }
 
-    addCell(leaf, pos, key, offset);
+    addCell(leaf, pos, key, offset, recordSize);
     int ret = (int) dumpPage(fd, leaf);
     freePage(&leaf);
     return ret;

@@ -9,7 +9,6 @@
 #include <errno.h>
 
 #include "btree.h"
-#include "lock.h"
 
 typedef struct {
     int idxFd;
@@ -18,10 +17,17 @@ typedef struct {
     char* name;
 }DB;
 
+typedef struct {
+    size_t size;
+    char* data;
+}Record;
+
+void dbFreeRecord(Record** record);
+
 DB* dbOpen(const char* name, int oflag, ...);
 void dbClose(DB* db);
 
-void* dbFetch(DB* db, uint64_t key, size_t* dataLen);
+int dbFetch(DB* db, uint64_t key, Record* record);
 int dbStore(DB* db, uint64_t key, void* data, int flag);
 int dbDelete(DB* db, uint64_t key);
 

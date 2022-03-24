@@ -27,6 +27,13 @@ static void dbFree(DB** db) {
     *db = NULL;
 }
 
+void dbFreeRecord(Record** record) {
+    if (!(*record)) return;
+    free((*record)->data);
+    free(*record);
+    *record = NULL;
+}
+
 DB* dbOpen(const char* name, int oflag, ...) {
     size_t len;
     int mode;
@@ -93,54 +100,48 @@ void dbClose(DB* db) {
     dbFree(&db);
 }
 
-void* dbFetch(DB* db, uint64_t key, size_t* dataLen) {
+int dbFetch(DB* db, uint64_t key, Record* record) {
     Cell* cell = malloc(sizeof(Cell));
     int pos = search(db->idxFd, db->header, NULL, key, cell);
     if (pos < 0 || cell->key != key) {
         errno = ENOENT;
-        return NULL;
+        return -1;
     }
 
-    lseek(db->dataFd, cell->offset, SEEK_SET);
-    if (writeLockWait(db->dataFd, cell->offset, SEEK_SET, sizeof(size_t)) < 0) {
-        free(cell);
-        errno = EAGAIN;
-        return NULL;
-    }
-    if (read(db->dataFd, dataLen, sizeof(size_t)) < 0) {
-        free(cell);
-        errno = EIO;
-        return NULL;
-    }
-    if (unlock(db->dataFd, cell->offset, SEEK_SET, sizeof(size_t)) < 0) {
-        free(cell);
-        errno = EAGAIN;
-        return NULL;
-    }
-
-    void* data = malloc(*dataLen);
+    void* data = malloc(cell->size);
     if (data == NULL) {
         free(cell);
         errno = ENOMEM;
-        return NULL;
+        return -1;
     }
-    if (writeLockWait(db->dataFd, cell->offset+sizeof(size_t), SEEK_SET, *dataLen) < 0) {
+
+    if (readLockWait(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
         free(data);
         free(cell);
         errno = EAGAIN;
-        return NULL;
+        return -1;
     }
-    if (read(db->dataFd, data, *dataLen) < 0) {
+
+    if (lseek(db->dataFd, cell->offset, SEEK_SET) < 0) {
+        free(data);
+        free(cell);
+        return -1;
+    }
+    if (read(db->dataFd, data, cell->size) < 0) {
         free(data);
         free(cell);
         errno = EIO;
-        return NULL;
+        return -1;
     }
-    if (unlock(db->dataFd, cell->offset+sizeof(size_t), SEEK_SET, *dataLen) < 0) {
+
+    if (unlock(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
         free(data);
         free(cell);
         errno = EAGAIN;
-        return NULL;
+        return -1;
     }
-    return data;
+
+    record->size = cell->size;
+    record->data = data;
+    return 0;
 }
