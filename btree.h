@@ -11,9 +11,10 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include "lock.h"
+
 #define MAX_CELL 252
 
-//todo: use record lock
 typedef struct Cell Cell;
 typedef struct Page Page;
 

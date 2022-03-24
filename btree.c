@@ -24,11 +24,12 @@ int freePage(Page** page) {
 }
 
 ssize_t loadPage(int fd, off_t offset, Page* page) {
-    if (lseek(fd, offset, SEEK_SET) < 0) {
-        return -1;
-    }
-
-    return read(fd, page, sizeof(Page));
+    off_t off;
+    if ((off = lseek(fd, offset, SEEK_SET)) < 0) return -1;
+    if (readLockWait(fd, off, SEEK_SET, sizeof(Page)) < 0) return -1;
+    ssize_t ret = read(fd, page, sizeof(Page));
+    if (unlock(fd, off, SEEK_SET, sizeof(Page)) < 0) return -1;
+    return ret;
 }
 
 ssize_t dumpPage(int fd, Page* page) {
@@ -36,17 +37,27 @@ ssize_t dumpPage(int fd, Page* page) {
 
     off_t offset = page->offset;
     if (lseek(fd, offset, SEEK_SET) < 0) return -1;
-    return write(fd, page, sizeof(Page));
+    if (writeLockWait(fd, offset, SEEK_SET, sizeof(Page)) < 0) return -1;
+    ssize_t ret = write(fd, page, sizeof(Page));
+    if (unlock(fd, offset, SEEK_SET, sizeof(Page)) < 0) return -1;
+    return ret;
 }
 
 ssize_t loadHeader(const char* fileName, Header* header) {
-    int fd = open(fileName, O_RDONLY);
-    return read(fd, header, sizeof(Header));
+    int fd;
+    if ((fd = open(fileName, O_RDWR)) < 0) return -1;
+    if (readLockWait(fd, 0, SEEK_SET, sizeof(Header)) < 0) return -1;
+    ssize_t ret = read(fd, header, sizeof(Header));
+    if (unlock(fd, 0, SEEK_SET, sizeof(Header)) < 0) return -1;
+    return ret;
 }
 
 ssize_t dumpHeader(int fd, Header* header) {
     if (lseek(fd, 0, SEEK_SET) < 0) return -1;
-    return write(fd, header, sizeof(Header));
+    if (writeLockWait(fd, 0, SEEK_SET, sizeof(Header)) < 0) return -1;
+    ssize_t ret = write(fd, header, sizeof(Header));
+    if (unlock(fd, 0, SEEK_SET, sizeof(Header)) < 0) return -1;
+    return ret;
 }
 
 int initPage(Page* page, uint8_t isRoot, uint8_t type, off_t parent, off_t prev, off_t next,
