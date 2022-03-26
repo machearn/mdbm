@@ -147,32 +147,64 @@ int dbFetch(DB* db, uint64_t key, Record* record) {
 }
 
 int dbDelete(DB* db, uint64_t key) {
-    Cell* cell = malloc(sizeof(Cell));
-    if (delete(db->idxFd, db->header, key, cell) < 0) {
-        free(cell);
+    Page* node = mallocPage();
+    if (node == NULL) {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    Cell* cell = mallocCell();
+    if (cell == NULL) {
+        freePage(&node);
+        errno = ENOMEM;
+        return -1;
+    }
+
+    int pos = search(db->idxFd, db->header, node, key, cell);
+    if (pos < 0) {
+        freePage(&node);
+        freeCell(&cell);
+        errno = ENOENT;
+        return -1;
+    }
+    if (node->cells[pos].key != key) {
+        freePage(&node);
+        freeCell(&cell);
+        errno = ENOENT;
+        return -1;
+    }
+    memcpy(cell, &(node->cells[pos]), sizeof(Cell));
+
+    ssize_t ret = delete(db->idxFd, node, pos);
+    freePage(&node);
+    if (ret < 0) {
+        freeCell(&cell);
+        errno = ENOENT;
         return -1;
     }
 
     if (writeLockWait(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
-        free(cell);
+        freeCell(&cell);
         errno = EAGAIN;
         return -1;
     }
 
     if (lseek(db->dataFd, cell->offset, SEEK_SET) < 0) {
-        free(cell);
+        freeCell(&cell);
         return -1;
     }
     char* blank = malloc(cell->size);
     if (blank == NULL) {
-        free(cell);
+        freeCell(&cell);
         errno = ENOMEM;
         return -1;
     }
     memset(blank, 0, cell->size);
-    ssize_t ret = write(db->dataFd, blank, cell->size);
+
+    ret = write(db->dataFd, blank, cell->size);
     free(blank);
-    free(cell);
+    blank = NULL;
+    freeCell(&cell);
     if (ret < 0) {
         errno = EIO;
         return -1;

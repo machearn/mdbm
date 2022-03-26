@@ -58,14 +58,22 @@ struct Page {
     char padding[16];
 };
 
+Page* mallocPage();
+void freePage(Page** page);
+Cell* mallocCell();
+void freeCell(Cell** cell);
+
 int openIndex(const char* filename, int oflag, Header* header);
 
 int createTree(int fd);
 
-int insert(int fd, Header* header, uint64_t key, off_t offset, size_t recordSize);
+ssize_t insert(int fd, Header* header, Page* leaf, int pos, const Cell* cell);
 int search(int fd, Header* header, Page* node, uint64_t key, Cell* Cell);
-int delete(int fd, Header* header, uint64_t key, Cell* cell);
-int update(int fd, Header* header, uint64_t key, Cell* cell);
+ssize_t delete(int fd, Page* leaf, int pos);
+int update(int fd, Page* leaf, int pos, const Cell* cell);
 
+#define BTREE_SUCCESS 0
+#define BTREE_NOT_FOUND 1
+#define BTREE_NOT_UPDATE 2
 
 #endif //MDBM_BTREE_H
