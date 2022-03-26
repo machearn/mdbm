@@ -70,10 +70,6 @@ int createTree(int fd);
 ssize_t insert(int fd, Header* header, Page* leaf, int pos, const Cell* cell);
 int search(int fd, Header* header, Page* node, uint64_t key, Cell* Cell);
 ssize_t delete(int fd, Page* leaf, int pos);
-int update(int fd, Page* leaf, int pos, const Cell* cell);
-
-#define BTREE_SUCCESS 0
-#define BTREE_NOT_FOUND 1
-#define BTREE_NOT_UPDATE 2
+ssize_t update(int fd, Page* leaf, int pos, const Cell* cell);
 
 #endif //MDBM_BTREE_H

@@ -143,7 +143,7 @@ int searchLeafNode(Page* node, uint64_t key, Cell* cell) {
         }
     }
 
-    if (cell && left > 0) memcpy((void*) ((node->cells) + left - 1), (void*) cell, sizeof(Cell));
+    if (cell && left > 0) memcpy((void*) cell, (void*) ((node->cells) + left - 1), sizeof(Cell));
     return (int) left - 1;
 }
 
@@ -504,9 +504,9 @@ ssize_t delete(int fd, Page* leaf, int pos) {
     return ret;
 }
 
-int update(int fd, Page* leaf, int pos, const Cell* cell) {
+ssize_t update(int fd, Page* leaf, int pos, const Cell* cell) {
     memcpy((leaf->cells) + pos, cell, sizeof(Cell));
-    return 0;
+    return dumpPage(fd, leaf);
 }
 
 #pragma clang diagnostic pop

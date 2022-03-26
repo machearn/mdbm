@@ -28,7 +28,11 @@ DB* dbOpen(const char* name, int oflag, ...);
 void dbClose(DB* db);
 
 int dbFetch(DB* db, uint64_t key, Record* record);
-int dbStore(DB* db, uint64_t key, void* data, int flag);
+int dbStore(DB* db, uint64_t key, Record* record, int flag);
 int dbDelete(DB* db, uint64_t key);
+
+#define DB_INSERT 1
+#define DB_REPLACE 2
+#define DB_STORE 3
 
 #endif //MDBM_MDBM_H
