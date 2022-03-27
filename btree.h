@@ -5,20 +5,20 @@
 #ifndef MDBM_BTREE_H
 #define MDBM_BTREE_H
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-
-#include "lock.h"
+#include <sys/types.h>
 
 #define MAX_CELL 168
 
 typedef struct Cell Cell;
 typedef struct Page Page;
+typedef struct Header Header;
 
-typedef struct {
+typedef enum {
+    LEAF_NODE,
+    INTERNAL_NODE,
+}NodeType;
+
+struct Header{
     int magicNumber;
     size_t orderNumber;
     size_t nodeNumber;
@@ -26,25 +26,14 @@ typedef struct {
 
     off_t rootOffset;
     off_t mostLeftLeafOffset;
-}Header;
+};
 
-/*
- * total size of Cell is 3*8 bytes
- */
 struct Cell {
     uint64_t key;
     size_t size; // if page is leaf, it is the size of record, else it is the size of subpage.
     off_t offset; // if page is leaf, it is the offset of record, else it is the offset of subpage.
 };
 
-typedef enum {
-    LEAF_NODE,
-    INTERNAL_NODE,
-}NodeType;
-
-/*
- * page size is 4KB aligned
- */
 struct Page {
     NodeType type; // Leaf or Internal
     uint8_t isRoot;

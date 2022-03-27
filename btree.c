@@ -1,9 +1,14 @@
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "misc-no-recursion"
 //
 // Created by Machearn Ning on 2/4/22.
 //
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+#include "lock.h"
 #include "btree.h"
 
 Page* splitPage(int fd, Header* header, Page* page);
@@ -508,5 +513,3 @@ ssize_t update(int fd, Page* leaf, int pos, const Cell* cell) {
     memcpy((leaf->cells) + pos, cell, sizeof(Cell));
     return dumpPage(fd, leaf);
 }
-
-#pragma clang diagnostic pop

@@ -2,7 +2,15 @@
 // Created by Machearn Ning on 3/21/22.
 //
 
+#include <stdarg.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+
 #include "mdbm.h"
+#include "lock.h"
 
 static DB* dbAlloc(size_t nameLen);
 

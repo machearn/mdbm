@@ -5,9 +5,6 @@
 #ifndef MDBM_MDBM_H
 #define MDBM_MDBM_H
 
-#include <stdarg.h>
-#include <errno.h>
-
 #include "btree.h"
 
 typedef struct {
