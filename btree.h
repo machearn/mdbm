@@ -18,14 +18,14 @@ typedef enum {
     INTERNAL_NODE,
 }NodeType;
 
-struct Header{
-    int magicNumber;
-    size_t orderNumber;
-    size_t nodeNumber;
+struct Header {
+    int magic_number;
+    size_t order_number;
+    size_t node_number;
     size_t height;
 
-    off_t rootOffset;
-    off_t mostLeftLeafOffset;
+    off_t root_offset;
+    off_t left_most_leaf_offset;
 };
 
 struct Cell {
@@ -36,25 +36,25 @@ struct Cell {
 
 struct Page {
     NodeType type; // Leaf or Internal
-    uint8_t isRoot;
-    uint8_t numCells;
+    uint8_t is_root;
+    uint8_t num_cells;
     off_t offset;
-    off_t leftMost; // only for internal node left most subpage which contains keys smaller than all keys in the node.
+    off_t left_most; // only for internal node left most subpage which contains keys smaller than all keys in the node.
     off_t parent;
-    off_t prevPage;
-    off_t nextPage;
+    off_t prev_page;
+    off_t next_page;
     Cell cells[MAX_CELL];
     char padding[16];
 };
 
-Page* mallocPage();
-void freePage(Page** page);
-Cell* mallocCell();
-void freeCell(Cell** cell);
+Page* malloc_page();
+void free_page(Page** page);
+Cell* malloc_cell();
+void free_cell(Cell** cell);
 
-int openIndex(const char* filename, int oflag, Header* header);
+int open_index(const char* file_name, int oflag, Header* header);
 
-int createTree(int fd);
+int create_tree(int fd);
 
 ssize_t insert(int fd, Header* header, Page* leaf, int pos, const Cell* cell);
 int search(int fd, Header* header, Page* node, uint64_t key, Cell* Cell);

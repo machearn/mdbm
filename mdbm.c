@@ -12,9 +12,7 @@
 #include "mdbm.h"
 #include "lock.h"
 
-static DB* dbAlloc(size_t nameLen);
-
-static DB* dbAlloc(size_t nameLen) {
+static DB* db_alloc(size_t nameLen) {
     Header* header = malloc(sizeof(Header));
     char* name = malloc(nameLen + 1);
 
@@ -25,38 +23,38 @@ static DB* dbAlloc(size_t nameLen) {
     return db;
 }
 
-static void dbFree(DB** db) {
+static void db_free(DB** db) {
     if (!(*db)) return;
-    if ((*db)->idxFd >= 0) close((*db)->idxFd);
-    if ((*db)->dataFd >= 0) close((*db)->dataFd);
+    if ((*db)->idx_fd >= 0) close((*db)->idx_fd);
+    if ((*db)->data_fd >= 0) close((*db)->data_fd);
     free((*db)->header);
     free((*db)->name);
     free(*db);
     *db = NULL;
 }
 
-void dbFreeRecord(Record** record) {
+void db_free_record(Record** record) {
     if (!(*record)) return;
     free((*record)->data);
     free(*record);
     *record = NULL;
 }
 
-DB* dbOpen(const char* name, int oflag, ...) {
+DB* db_open(const char* name, int oflag, ...) {
     size_t len;
     int mode;
     DB* db = NULL;
 
     len = strlen(name);
-    db = dbAlloc(len);
+    db = db_alloc(len);
     strcpy(db->name, name);
 
-    char* idxName = malloc(len + 4 + 1);
-    char* dataName = malloc(len + 4 + 1);
-    strcpy(idxName, name);
-    strcat(idxName, ".idx");
-    strcpy(dataName, name);
-    strcat(dataName, ".dat");
+    char* idx_file_name = malloc(len + 4 + 1);
+    char* data_file_name = malloc(len + 4 + 1);
+    strcpy(idx_file_name, name);
+    strcat(idx_file_name, ".idx");
+    strcpy(data_file_name, name);
+    strcat(data_file_name, ".dat");
 
     if (oflag & O_CREAT) {
         va_list ap;
@@ -64,53 +62,53 @@ DB* dbOpen(const char* name, int oflag, ...) {
         mode = va_arg(ap, int);
         va_end(ap);
 
-        db->idxFd = open(idxName, oflag, mode);
-        db->dataFd = open(dataName, oflag, mode);
+        db->idx_fd = open(idx_file_name, oflag, mode);
+        db->data_fd = open(data_file_name, oflag, mode);
     } else {
-        db->idxFd = openIndex(idxName, oflag, db->header);
-        db->dataFd = open(dataName, oflag);
+        db->idx_fd = open_index(idx_file_name, oflag, db->header);
+        db->data_fd = open(data_file_name, oflag);
     }
 
-    if (db->idxFd < 0 || db->dataFd < 0) {
-        dbFree(&db);
-        free(idxName);
-        free(dataName);
+    if (db->idx_fd < 0 || db->data_fd < 0) {
+        db_free(&db);
+        free(idx_file_name);
+        free(data_file_name);
         return NULL;
     }
 
     if ((oflag & (O_CREAT | O_TRUNC)) == (O_CREAT | O_TRUNC)) {
-        if (writeLockWait(db->idxFd, 0, SEEK_SET, 0) < 0) {
-            dbFree(&db);
-            free(idxName);
-            free(dataName);
+        if (write_lock_wait(db->idx_fd, 0, SEEK_SET, 0) < 0) {
+            db_free(&db);
+            free(idx_file_name);
+            free(data_file_name);
             return NULL;
         }
-        if (createTree(db->idxFd) < 0) {
-            dbFree(&db);
-            free(idxName);
-            free(dataName);
+        if (create_tree(db->idx_fd) < 0) {
+            db_free(&db);
+            free(idx_file_name);
+            free(data_file_name);
             return NULL;
         }
-        if (unlock(db->idxFd, 0, SEEK_SET, 0) < 0) {
-            dbFree(&db);
-            free(idxName);
-            free(dataName);
+        if (unlock(db->idx_fd, 0, SEEK_SET, 0) < 0) {
+            db_free(&db);
+            free(idx_file_name);
+            free(data_file_name);
             return NULL;
         }
     }
 
-    free(idxName);
-    free(dataName);
+    free(idx_file_name);
+    free(data_file_name);
     return db;
 }
 
-void dbClose(DB* db) {
-    dbFree(&db);
+void db_close(DB* db) {
+    db_free(&db);
 }
 
-int dbFetch(DB* db, uint64_t key, Record* record) {
+int db_fetch(DB* db, uint64_t key, Record* record) {
     Cell* cell = malloc(sizeof(Cell));
-    int pos = search(db->idxFd, db->header, NULL, key, cell);
+    int pos = search(db->idx_fd, db->header, NULL, key, cell);
     if (pos < 0 || cell->key != key) {
         errno = ENOENT;
         return -1;
@@ -123,26 +121,26 @@ int dbFetch(DB* db, uint64_t key, Record* record) {
         return -1;
     }
 
-    if (readLockWait(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
+    if (read_lock_wait(db->data_fd, cell->offset, SEEK_SET, cell->size) < 0) {
         free(data);
         free(cell);
         errno = EAGAIN;
         return -1;
     }
 
-    if (lseek(db->dataFd, cell->offset, SEEK_SET) < 0) {
+    if (lseek(db->data_fd, cell->offset, SEEK_SET) < 0) {
         free(data);
         free(cell);
         return -1;
     }
-    if (read(db->dataFd, data, cell->size) < 0) {
+    if (read(db->data_fd, data, cell->size) < 0) {
         free(data);
         free(cell);
         errno = EIO;
         return -1;
     }
 
-    if (unlock(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
+    if (unlock(db->data_fd, cell->offset, SEEK_SET, cell->size) < 0) {
         free(data);
         free(cell);
         errno = EAGAIN;
@@ -154,7 +152,7 @@ int dbFetch(DB* db, uint64_t key, Record* record) {
     return 0;
 }
 
-int dbStore(DB* db, uint64_t key, Record* record, int flag) {
+int db_store(DB* db, uint64_t key, Record* record, int flag) {
     if (record == NULL || record->data == NULL) {
         errno = EINVAL;
         return -1;
@@ -165,206 +163,206 @@ int dbStore(DB* db, uint64_t key, Record* record, int flag) {
         return -1;
     }
 
-    Page* node = mallocPage();
-    Cell* newCell = mallocCell();
-    Cell* oldCell = mallocCell();
+    Page* node = malloc_page();
+    Cell* new_cell = malloc_cell();
+    Cell* old_cell = malloc_cell();
 
-    newCell->size = record->size;
-    newCell->key = key;
-    if ((newCell->offset = lseek(db->dataFd, 0, SEEK_END)) < 0) {
-        freePage(&node);
-        freeCell(&newCell);
-        freeCell(&oldCell);
+    new_cell->size = record->size;
+    new_cell->key = key;
+    if ((new_cell->offset = lseek(db->data_fd, 0, SEEK_END)) < 0) {
+        free_page(&node);
+        free_cell(&new_cell);
+        free_cell(&old_cell);
         errno = EIO;
         return -1;
     }
 
-    int pos = search(db->idxFd, db->header, node, key, oldCell);
+    int pos = search(db->idx_fd, db->header, node, key, old_cell);
     if (pos < 0) {
-        freePage(&node);
-        freeCell(&newCell);
-        freeCell(&oldCell);
+        free_page(&node);
+        free_cell(&new_cell);
+        free_cell(&old_cell);
         errno = ENOENT;
         return -1;
     }
     if (node->cells[pos].key == key) {
         if (flag == DB_INSERT) {
-            freePage(&node);
-            freeCell(&newCell);
-            freeCell(&oldCell);
+            free_page(&node);
+            free_cell(&new_cell);
+            free_cell(&old_cell);
             errno = EEXIST;
             return -1;
         }
 
-        ssize_t ret = update(db->idxFd, node, pos, newCell);
-        freePage(&node);
+        ssize_t ret = update(db->idx_fd, node, pos, new_cell);
+        free_page(&node);
         if (ret < 0) {
-            freeCell(&newCell);
-            freeCell(&oldCell);
+            free_cell(&new_cell);
+            free_cell(&old_cell);
             errno = EAGAIN;
             return -1;
         }
 
-        if (writeLockWait(db->dataFd, node->cells[pos].offset, SEEK_SET, node->cells[pos].size) <
+        if (write_lock_wait(db->data_fd, node->cells[pos].offset, SEEK_SET, node->cells[pos].size) <
             0) {
-            freeCell(&newCell);
-            freeCell(&oldCell);
+            free_cell(&new_cell);
+            free_cell(&old_cell);
             errno = EAGAIN;
             return -1;
         }
 
-        if (lseek(db->dataFd, node->cells[pos].offset, SEEK_SET) < 0) {
-            freeCell(&newCell);
-            freeCell(&oldCell);
+        if (lseek(db->data_fd, node->cells[pos].offset, SEEK_SET) < 0) {
+            free_cell(&new_cell);
+            free_cell(&old_cell);
             errno = EIO;
             return -1;
         }
 
-        if (oldCell->size < record->size) {
-            char* blank = malloc(oldCell->size);
+        if (old_cell->size < record->size) {
+            char* blank = malloc(old_cell->size);
             if (blank == NULL) {
-                freeCell(&newCell);
-                freeCell(&oldCell);
+                free_cell(&new_cell);
+                free_cell(&old_cell);
                 errno = ENOMEM;
                 return -1;
             }
-            if (write(db->dataFd, blank, oldCell->size) < 0) {
+            if (write(db->data_fd, blank, old_cell->size) < 0) {
                 free(blank);
-                freeCell(&newCell);
-                freeCell(&oldCell);
+                free_cell(&new_cell);
+                free_cell(&old_cell);
                 errno = EIO;
                 return -1;
             }
             free(blank);
-            if (lseek(db->dataFd, 0, SEEK_END) < 0) {
-                freeCell(&newCell);
-                freeCell(&oldCell);
+            if (lseek(db->data_fd, 0, SEEK_END) < 0) {
+                free_cell(&new_cell);
+                free_cell(&old_cell);
                 errno = EIO;
                 return -1;
             }
         }
 
-        if (write(db->dataFd, record->data, record->size) < 0) {
-            freePage(&node);
-            freeCell(&newCell);
+        if (write(db->data_fd, record->data, record->size) < 0) {
+            free_page(&node);
+            free_cell(&new_cell);
             errno = EIO;
             return -1;
         }
 
-        if (unlock(db->dataFd, node->cells[pos].offset, SEEK_SET, node->cells[pos].size) < 0) {
-            freePage(&node);
-            freeCell(&newCell);
+        if (unlock(db->data_fd, node->cells[pos].offset, SEEK_SET, node->cells[pos].size) < 0) {
+            free_page(&node);
+            free_cell(&new_cell);
             errno = EAGAIN;
             return -1;
         }
     } else {
-        freeCell(&oldCell);
+        free_cell(&old_cell);
         if (flag == DB_REPLACE) {
-            freePage(&node);
-            freeCell(&newCell);
+            free_page(&node);
+            free_cell(&new_cell);
             errno = ENOENT;
             return -1;
         }
-        ssize_t ret = insert(db->idxFd, db->header, node, pos, newCell);
-        freePage(&node);
+        ssize_t ret = insert(db->idx_fd, db->header, node, pos, new_cell);
+        free_page(&node);
         if (ret < 0) {
-            freeCell(&newCell);
+            free_cell(&new_cell);
             errno = EAGAIN;
             return -1;
         }
 
-        if (writeLockWait(db->dataFd, newCell->offset, SEEK_SET, newCell->size) < 0) {
-            freeCell(&newCell);
+        if (write_lock_wait(db->data_fd, new_cell->offset, SEEK_SET, new_cell->size) < 0) {
+            free_cell(&new_cell);
             errno = EAGAIN;
             return -1;
         }
-        if (lseek(db->dataFd, newCell->offset, SEEK_SET) < 0) {
-            freeCell(&newCell);
+        if (lseek(db->data_fd, new_cell->offset, SEEK_SET) < 0) {
+            free_cell(&new_cell);
             errno = EIO;
             return -1;
         }
-        if (write(db->dataFd, record->data, record->size) < 0) {
-            freeCell(&newCell);
+        if (write(db->data_fd, record->data, record->size) < 0) {
+            free_cell(&new_cell);
             errno = EIO;
             return -1;
         }
-        if (unlock(db->dataFd, newCell->offset, SEEK_SET, newCell->size) < 0) {
-            freeCell(&newCell);
+        if (unlock(db->data_fd, new_cell->offset, SEEK_SET, new_cell->size) < 0) {
+            free_cell(&new_cell);
             errno = EAGAIN;
             return -1;
         }
     }
 
-    freePage(&node);
-    freeCell(&newCell);
-    freeCell(&oldCell);
+    free_page(&node);
+    free_cell(&new_cell);
+    free_cell(&old_cell);
     return 0;
 }
 
-int dbDelete(DB* db, uint64_t key) {
-    Page* node = mallocPage();
+int db_delete(DB* db, uint64_t key) {
+    Page* node = malloc_page();
     if (node == NULL) {
         errno = ENOMEM;
         return -1;
     }
 
-    Cell* cell = mallocCell();
+    Cell* cell = malloc_cell();
     if (cell == NULL) {
-        freePage(&node);
+        free_page(&node);
         errno = ENOMEM;
         return -1;
     }
 
-    int pos = search(db->idxFd, db->header, node, key, cell);
+    int pos = search(db->idx_fd, db->header, node, key, cell);
     if (pos < 0) {
-        freePage(&node);
-        freeCell(&cell);
+        free_page(&node);
+        free_cell(&cell);
         errno = ENOENT;
         return -1;
     }
     if (node->cells[pos].key != key) {
-        freePage(&node);
-        freeCell(&cell);
+        free_page(&node);
+        free_cell(&cell);
         errno = ENOENT;
         return -1;
     }
 
-    ssize_t ret = delete(db->idxFd, node, pos);
-    freePage(&node);
+    ssize_t ret = delete(db->idx_fd, node, pos);
+    free_page(&node);
     if (ret < 0) {
-        freeCell(&cell);
+        free_cell(&cell);
         errno = ENOENT;
         return -1;
     }
 
-    if (writeLockWait(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
-        freeCell(&cell);
+    if (write_lock_wait(db->data_fd, cell->offset, SEEK_SET, cell->size) < 0) {
+        free_cell(&cell);
         errno = EAGAIN;
         return -1;
     }
 
-    if (lseek(db->dataFd, cell->offset, SEEK_SET) < 0) {
-        freeCell(&cell);
+    if (lseek(db->data_fd, cell->offset, SEEK_SET) < 0) {
+        free_cell(&cell);
         return -1;
     }
     char* blank = malloc(cell->size);
     if (blank == NULL) {
-        freeCell(&cell);
+        free_cell(&cell);
         errno = ENOMEM;
         return -1;
     }
     memset(blank, 0, cell->size);
 
-    ret = write(db->dataFd, blank, cell->size);
+    ret = write(db->data_fd, blank, cell->size);
     free(blank);
     blank = NULL;
-    freeCell(&cell);
+    free_cell(&cell);
     if (ret < 0) {
         errno = EIO;
         return -1;
     }
 
-    if (unlock(db->dataFd, cell->offset, SEEK_SET, cell->size) < 0) {
+    if (unlock(db->data_fd, cell->offset, SEEK_SET, cell->size) < 0) {
         errno = EAGAIN;
         return -1;
     }
