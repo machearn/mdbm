@@ -30,7 +30,7 @@ int db_store(DB* db, uint64_t key, Record* record, int flag);
 int db_delete(DB* db, uint64_t key);
 
 int db_first_key(DB* db, Cell* cell);
-int db_next_key(DB* db, uint64_t key, Cell* cell);
+int db_next_key(DB* db, Page* leaf, uint64_t key, Cell* cell);
 
 int db_reorganize(DB* db);
 

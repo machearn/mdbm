@@ -52,8 +52,8 @@ void free_page(Page** page);
 Cell* malloc_cell();
 void free_cell(Cell** cell);
 
-int first_key(int fd, Header* header, Cell* cell);
-int next_key(int fd, Header* header, uint64_t key, Cell* cell);
+int first_key(int fd, Header* header, Page* leaf, Cell* cell);
+int next_key(int fd, Page* leaf, uint64_t key, Cell* cell);
 
 int open_index(const char* file_name, int oflag, Header* header);
 
