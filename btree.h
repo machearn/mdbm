@@ -20,7 +20,6 @@ typedef enum {
 
 struct Header {
     int magic_number;
-    size_t order_number;
     size_t node_number;
     size_t height;
 

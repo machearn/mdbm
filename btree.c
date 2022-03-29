@@ -314,9 +314,41 @@ int insert_internal_page(int fd, Header* header, Page* prev, Page* child, uint64
     return 0;
 }
 
+int init_root(int fd, Header* header, Page* left_child, uint64_t key) {
+    Page* root = malloc_page();
+    off_t root_offset;
+    if ((root_offset = lseek(fd, 0, SEEK_END)) < 0) {
+        free_page(&root);
+        return -1;
+    }
+    init_page(root, 1, INTERNAL_NODE, -1, -1, -1, root_offset, left_child->offset);
+
+    root->cells[0].key = key;
+    root->cells[0].offset = left_child->next_page;
+    root->cells[0].size = sizeof(Page);
+    root->num_cells = 1;
+
+    header->node_number++;
+    header->height++;
+    header->root_offset = root_offset;
+
+    if (dump_page(fd, root) < 0) {
+        free_page(&root);
+        return -1;
+    }
+    if (dump_header(fd, header) < 0) {
+        free_page(&root);
+        return -1;
+    }
+    return 0;
+}
+
 int add_internal_key(int fd, Header* header, Page* child, uint64_t key) {
     Page* node = malloc_page();
     off_t node_offset = child->parent;
+
+    if (node_offset == -1) return init_root(fd, header, child, key);
+
     if (load_page(fd, node_offset, node) < 0) return -1;
     int pos = search_internal_node(node, key);
 
@@ -378,12 +410,12 @@ int insert_leaf_page(int fd, Header* header, Page* prev, const Cell* cell) {
     }
 
     int ret = add_internal_key(fd, header, new_leaf, cell->key);
+    free_page(&new_leaf);
     if (ret < 0) {
         ftruncate(fd, recover);
         while (dump_page(fd, recover_prev) < 0);
         return -1;
     }
-    free_page(&new_leaf);
     return ret;
 }
 
@@ -396,59 +428,27 @@ int open_index(const char* file_name, int oflag, Header* header) {
 int create_tree(int fd) {
     Header header;
     header.magic_number = 0x1234;
-    header.order_number = MAX_CELL;
-    header.height = 2;
-    header.node_number = 3;
+    header.height = 1;
+    header.node_number = 1;
 
-    header.root_offset = sizeof(Header);
+    header.root_offset = -1;
 
-    write(fd, &header, sizeof(Header));
-
-    Page* root = malloc_page();
-    init_page(root, 1, INTERNAL_NODE, -1, -1, -1, -1, -1);
-    if ((root->offset = lseek(fd, 0, SEEK_END)) < 0) {
-        free_page(&root);
-        return -1;
-    }
-    header.root_offset = root->offset;
-    dump_page(fd, root);
+    if (dump_header(fd, &header) < 0) return -1;
 
     Page* left_leaf = malloc_page();
-    init_page(left_leaf, 0, LEAF_NODE, root->offset, -1, -1, -1, -1);
+    init_page(left_leaf, 0, LEAF_NODE, -1, -1, -1, -1, -1);
     if ((left_leaf->offset = lseek(fd, 0, SEEK_END)) < 0) {
-        free_page(&root);
         free_page(&left_leaf);
         return -1;
     }
-    dump_page(fd, left_leaf);
-    root->left_most = left_leaf->offset;
-
-    free_page(&left_leaf);
-
-    Page* right_leaf = malloc_page();
-    init_page(right_leaf, 0, LEAF_NODE, root->offset, left_leaf->offset, -1, -1, -1);
-    if ((right_leaf->offset = lseek(fd, 0, SEEK_END)) < 0) {
-        free_page(&root);
-        free_page(&right_leaf);
+    if (dump_page(fd, left_leaf) < 0) {
+        free_page(&left_leaf);
         return -1;
     }
-    dump_page(fd, right_leaf);
-    add_cell(root, -1, MAX_CELL, right_leaf->offset, sizeof(Page));
-
-    free_page(&right_leaf);
-
-    if (lseek(fd, root->offset, SEEK_SET) < 0) {
-        free_page(&root);
-        return -1;
-    }
-    dump_page(fd, root);
-    free_page(&root);
 
     header.left_most_leaf_offset = left_leaf->offset;
-    if (lseek(fd, 0, SEEK_SET) < 0) {
-        return -1;
-    }
-    write(fd, &header, sizeof(Header));
+    free_page(&left_leaf);
+    if (dump_header(fd, &header) < 0) return -1;
     return 0;
 }
 
@@ -458,7 +458,9 @@ int search(int fd, Header* header, Page* node, uint64_t key, Cell* cell) {
         node = malloc_page();
         flag = 1;
     }
-    if (load_page(fd, header->root_offset, node) < 0) return -1;
+    off_t off = header->root_offset < 0 ? header->left_most_leaf_offset : header->root_offset;
+
+    if (load_page(fd, off, node) < 0) return -1;
     while (node->type == INTERNAL_NODE) {
         int pos = search_internal_node(node, key);
         if (pos < 0) return -1;
