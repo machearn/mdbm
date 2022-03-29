@@ -368,3 +368,11 @@ int db_delete(DB* db, uint64_t key) {
     }
     return 0;
 }
+
+int db_first_key(DB* db, Cell* cell) {
+    return first_key(db->idx_fd, db->header, cell);
+}
+
+int db_next_key(DB* db, uint64_t key, Cell* cell) {
+    return next_key(db->idx_fd, db->header, key, cell);
+}

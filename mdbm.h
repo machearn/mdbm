@@ -1,6 +1,4 @@
-// todo: add reorganize operation
 // todo: create new file, insert the key in order to reduce the blanks
-// todo: add first_key and next_key operation
 //
 // Created by Machearn Ning on 3/21/22.
 //
@@ -30,6 +28,11 @@ void db_close(DB* db);
 int db_fetch(DB* db, uint64_t key, Record* record);
 int db_store(DB* db, uint64_t key, Record* record, int flag);
 int db_delete(DB* db, uint64_t key);
+
+int db_first_key(DB* db, Cell* cell);
+int db_next_key(DB* db, uint64_t key, Cell* cell);
+
+int db_reorganize(DB* db);
 
 #define DB_INSERT 1
 #define DB_REPLACE 2

@@ -513,3 +513,50 @@ ssize_t update(int fd, Page* leaf, int pos, const Cell* cell) {
     memcpy((leaf->cells) + pos, cell, sizeof(Cell));
     return dump_page(fd, leaf);
 }
+
+int first_key(int fd, Header* header, Cell* cell) {
+    Page* leaf = malloc_page();
+    if (load_page(fd, header->left_most_leaf_offset, leaf) < 0) {
+        free_page(&leaf);
+        return -1;
+    }
+    while (leaf->num_cells == 0) {
+        off_t next = leaf->next_page;
+        if (load_page(fd, next, leaf) < 0) {
+            free_page(&leaf);
+            return -1;
+        }
+    }
+    memcpy(cell, leaf->cells, sizeof(Cell));
+    return 0;
+}
+
+int next_key(int fd, Header* header, uint64_t key, Cell* cell) {
+    Page* leaf = malloc_page();
+    if (leaf == NULL) return -1;
+
+    int pos = search(fd, header, leaf, key, NULL);
+    if (pos < 0) {
+        free_page(&leaf);
+        return -1;
+    }
+    if (leaf->cells[pos].key != key) {
+        free_page(&leaf);
+        return -1;
+    }
+
+    if (pos == leaf->num_cells - 1) {
+        do {
+            off_t next = leaf->next_page;
+            if (load_page(fd, next, leaf) < 0) {
+                free_page(&leaf);
+                return -1;
+            }
+        } while (leaf->num_cells == 0);
+
+        memcpy(cell, leaf->cells, sizeof(Cell));
+    } else {
+        memcpy(cell, leaf->cells + pos + 1, sizeof(Cell));
+    }
+    return 0;
+}
