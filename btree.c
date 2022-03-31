@@ -59,9 +59,7 @@ ssize_t dump_page(int fd, Page* page) {
     return ret;
 }
 
-ssize_t load_header(const char* file_name, Header* header) {
-    int fd;
-    if ((fd = open(file_name, O_RDWR)) < 0) return -1;
+ssize_t load_header(int fd, Header* header) {
     if (read_lock_wait(fd, 0, SEEK_SET, sizeof(Header)) < 0) return -1;
     ssize_t ret = read(fd, header, sizeof(Header));
     if (unlock(fd, 0, SEEK_SET, sizeof(Header)) < 0) return -1;
@@ -419,9 +417,8 @@ int insert_leaf_page(int fd, Header* header, Page* prev, const Cell* cell) {
     return ret;
 }
 
-int open_index(const char* file_name, int oflag, Header* header) {
-    int fd = open(file_name, oflag);
-    load_header(file_name, header);
+int load_index_header(int fd, Header* header) {
+    load_header(fd, header);
     return fd;
 }
 
@@ -449,6 +446,11 @@ int create_tree(int fd) {
     header.left_most_leaf_offset = left_leaf->offset;
     free_page(&left_leaf);
     if (dump_header(fd, &header) < 0) return -1;
+    return 0;
+}
+
+int get_left_most_leaf(int fd, Header* header, Page* leaf) {
+    if (load_page(fd, header->left_most_leaf_offset, leaf) < 0) return -1;
     return 0;
 }
 
@@ -526,20 +528,19 @@ int first_key(int fd, Header* header, Page* leaf, Cell* cell) {
     return 0;
 }
 
-int next_key(int fd, Page* leaf, uint64_t key, Cell* cell) {
-    int pos = search_leaf_node(leaf, key, NULL);
-    if (pos < 0) return -1;
-    if (leaf->cells[pos].key != key) return -1;
-
-    if (pos == leaf->num_cells - 1) {
+int next_key(int fd, Page* leaf, int* pos, Cell* cell) {
+    if (*pos == leaf->num_cells - 1) {
         do {
             off_t next = leaf->next_page;
+            if (next == -1) return -2;
             if (load_page(fd, next, leaf) < 0) return -1;
         } while (leaf->num_cells == 0);
 
+        *pos = 0;
         memcpy(cell, leaf->cells, sizeof(Cell));
     } else {
-        memcpy(cell, leaf->cells + pos + 1, sizeof(Cell));
+        (*pos)++;
+        memcpy(cell, leaf->cells + (*pos), sizeof(Cell));
     }
     return 0;
 }

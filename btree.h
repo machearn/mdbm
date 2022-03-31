@@ -52,11 +52,12 @@ Cell* malloc_cell();
 void free_cell(Cell** cell);
 
 int first_key(int fd, Header* header, Page* leaf, Cell* cell);
-int next_key(int fd, Page* leaf, uint64_t key, Cell* cell);
+int next_key(int fd, Page* leaf, int* pos, Cell* cell);
 
-int open_index(const char* file_name, int oflag, Header* header);
+int load_index_header(int fd, Header* header);
 
 int create_tree(int fd);
+int get_left_most_leaf(int fd, Header* header, Page* leaf);
 
 ssize_t insert(int fd, Header* header, Page* leaf, int pos, const Cell* cell);
 int search(int fd, Header* header, Page* node, uint64_t key, Cell* Cell);

@@ -8,9 +8,25 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/syslimits.h>
+#include <libgen.h>
+#include <stdio.h>
 
 #include "mdbm.h"
 #include "lock.h"
+
+Record* malloc_record() {
+    Record* record = NULL;
+    record = (Record*) malloc(sizeof(Record));
+    memset(record, 0, sizeof(Record));
+    return record;
+}
+
+void free_record(Record** ptr) {
+    if (ptr == NULL) return;
+    free(*ptr);
+    *ptr = NULL;
+}
 
 static DB* db_alloc(size_t nameLen) {
     Header* header = malloc(sizeof(Header));
@@ -65,7 +81,8 @@ DB* db_open(const char* name, int oflag, ...) {
         db->idx_fd = open(idx_file_name, oflag, mode);
         db->data_fd = open(data_file_name, oflag, mode);
     } else {
-        db->idx_fd = open_index(idx_file_name, oflag, db->header);
+        db->idx_fd = open(idx_file_name, oflag);
+        load_index_header(db->idx_fd, db->header);
         db->data_fd = open(data_file_name, oflag);
     }
 
@@ -378,6 +395,219 @@ int db_first_key(DB* db, Cell* cell) {
     return first_key(db->idx_fd, db->header, leaf, cell);
 }
 
-int db_next_key(DB* db, Page* leaf, uint64_t key, Cell* cell) {
-    return next_key(db->idx_fd, leaf, key, cell);
+int db_next_key(DB* db, Page* leaf, int* pos, Cell* cell) {
+    return next_key(db->idx_fd, leaf, pos, cell);
+}
+
+int db_reorganize(DB* db) {
+    char* tmp_idx_path = "/tmp/tmp.idx";
+    int new_idx_fd = open(tmp_idx_path, O_RDWR | O_CREAT, 0644);
+    if (new_idx_fd < 0) {
+        return errno;
+    }
+
+    char* tmp_data_path = "/tmp/tmp.data";
+    int new_data_fd = open(tmp_data_path, O_RDWR | O_CREAT, 0644);
+    if (new_data_fd < 0) {
+        close(new_idx_fd);
+        return errno;
+    }
+
+    Cell* cell = malloc_cell();
+    if (cell == NULL) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        errno = ENOMEM;
+        return -1;
+    }
+
+    Record* record = malloc_record();
+    if (record == NULL) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        free_cell(&cell);
+        errno = ENOMEM;
+        return -1;
+    }
+
+    Page* leaf = malloc_page();
+    if (leaf == NULL) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        free_cell(&cell);
+        free_record(&record);
+        errno = ENOMEM;
+        return -1;
+    }
+
+    Page* new_leaf = malloc_page();
+    if (new_leaf == NULL) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        free_cell(&cell);
+        free_record(&record);
+        free_page(&leaf);
+        errno = ENOMEM;
+        return -1;
+    }
+
+    int pos = -1;
+    int new_pos = -1;
+    int next_key_ret = 0;
+    off_t new_record_offset = 0;
+    Header new_header;
+
+    if (first_key(db->idx_fd, db->header, leaf, cell) < 0) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        free_cell(&cell);
+        free_record(&record);
+        free_page(&leaf);
+        free_page(&new_leaf);
+        errno = ENOENT;
+        return -1;
+    }
+    pos++;
+
+    create_tree(new_idx_fd);
+    load_index_header(new_idx_fd, &new_header);
+    get_left_most_leaf(db->idx_fd, &new_header, new_leaf);
+
+    do {
+        if (read_lock_wait(db->data_fd, cell->offset, SEEK_SET, cell->size) < 0) {
+            close(new_idx_fd);
+            close(new_data_fd);
+            free_cell(&cell);
+            free_record(&record);
+            free_page(&leaf);
+            free_page(&new_leaf);
+            errno = EAGAIN;
+            return -1;
+        }
+        if (lseek(db->data_fd, cell->offset, SEEK_SET) < 0) {
+            close(new_idx_fd);
+            close(new_data_fd);
+            free_cell(&cell);
+            free_record(&record);
+            free_page(&leaf);
+            free_page(&new_leaf);
+            return -1;
+        }
+        if (read(db->data_fd, record, cell->size) < 0) {
+            close(new_idx_fd);
+            close(new_data_fd);
+            free_cell(&cell);
+            free_record(&record);
+            free_page(&leaf);
+            free_page(&new_leaf);
+            errno = EIO;
+            return -1;
+        }
+        if (unlock(db->data_fd, cell->offset, SEEK_SET, cell->size) < 0) {
+            close(new_idx_fd);
+            close(new_data_fd);
+            free_cell(&cell);
+            free_record(&record);
+            free_page(&leaf);
+            free_page(&new_leaf);
+            errno = EAGAIN;
+            return -1;
+        }
+
+        if (write_lock_wait(new_data_fd, new_record_offset, SEEK_SET, cell->size) < 0) {
+            close(new_idx_fd);
+            close(new_data_fd);
+            free_cell(&cell);
+            free_record(&record);
+            free_page(&leaf);
+            free_page(&new_leaf);
+            errno = EAGAIN;
+            return -1;
+        }
+        if (write(new_data_fd, record, cell->size) < 0) {
+            close(new_idx_fd);
+            close(new_data_fd);
+            free_cell(&cell);
+            free_record(&record);
+            free_page(&leaf);
+            free_page(&new_leaf);
+            errno = EIO;
+            return -1;
+        }
+        new_record_offset += (off_t) cell->size;
+        if (unlock(new_data_fd, 0, SEEK_SET, cell->size) < 0) {
+            close(new_idx_fd);
+            close(new_data_fd);
+            free_cell(&cell);
+            free_record(&record);
+            free_page(&leaf);
+            free_page(&new_leaf);
+            errno = EAGAIN;
+            return -1;
+        }
+
+        new_pos = search(new_idx_fd, &new_header, new_leaf, cell->key, NULL);
+        insert(new_idx_fd, &new_header, new_leaf, new_pos, cell);
+
+        next_key_ret = db_next_key(db, leaf, &pos, cell);
+        if (next_key_ret == -1) {
+            close(new_idx_fd);
+            close(new_data_fd);
+            free_cell(&cell);
+            free_record(&record);
+            free_page(&leaf);
+            free_page(&new_leaf);
+            errno = EIO;
+            return -1;
+        }
+    } while (next_key_ret == -2);
+
+    char path[PATH_MAX];
+    if (fcntl(db->idx_fd, F_GETPATH, path) < 0) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        free_cell(&cell);
+        free_record(&record);
+        free_page(&leaf);
+        free_page(&new_leaf);
+        errno = EIO;
+        return -1;
+    }
+    close(db->idx_fd);
+    db->idx_fd = new_idx_fd;
+    if (rename(tmp_idx_path, path) < 0) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        free_cell(&cell);
+        free_record(&record);
+        free_page(&leaf);
+        free_page(&new_leaf);
+        errno = EIO;
+        return -1;
+    }
+
+    if (fcntl(db->data_fd, F_GETPATH, path) < 0) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        free_cell(&cell);
+        free_record(&record);
+        free_page(&leaf);
+        free_page(&new_leaf);
+        errno = EIO;
+        return -1;
+    }
+    close(db->data_fd);
+    db->data_fd = new_data_fd;
+    if (rename(tmp_data_path, path) < 0) {
+        close(new_idx_fd);
+        close(new_data_fd);
+        free_cell(&cell);
+        free_record(&record);
+        free_page(&leaf);
+        free_page(&new_leaf);
+        errno = EIO;
+        return -1;
+    }
+
+    return 0;
 }
