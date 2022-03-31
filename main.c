@@ -6,7 +6,7 @@
 #include "mdbm.h"
 
 int main() {
-    printf("%lu\n", sizeof(Page));
+    printf("%lu\n", sizeof(IndexPage));
     printf("%lu\n", sizeof(Cell));
     return 0;
 }

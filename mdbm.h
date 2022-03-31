@@ -1,4 +1,4 @@
-// todo: create new file, insert the key in order to reduce the blanks
+// todo: create new file, insert_index the key in order to reduce the blanks
 //
 // Created by Machearn Ning on 3/21/22.
 //
@@ -30,7 +30,7 @@ int db_store(DB* db, uint64_t key, Record* record, int flag);
 int db_delete(DB* db, uint64_t key);
 
 int db_first_key(DB* db, Cell* cell);
-int db_next_key(DB* db, Page* leaf, int* pos, Cell* cell);
+int db_next_key(DB* db, IndexPage* leaf, int* pos, Cell* cell);
 
 int db_reorganize(DB* db);
 

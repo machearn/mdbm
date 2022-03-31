@@ -9,7 +9,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/syslimits.h>
-#include <libgen.h>
 #include <stdio.h>
 
 #include "mdbm.h"
@@ -125,7 +124,7 @@ void db_close(DB* db) {
 
 int db_fetch(DB* db, uint64_t key, Record* record) {
     Cell* cell = malloc(sizeof(Cell));
-    int pos = search(db->idx_fd, db->header, NULL, key, cell);
+    int pos = search_index(db->idx_fd, db->header, NULL, key, cell);
     if (pos < 0 || cell->key != key) {
         errno = ENOENT;
         return -1;
@@ -180,23 +179,23 @@ int db_store(DB* db, uint64_t key, Record* record, int flag) {
         return -1;
     }
 
-    Page* node = malloc_page();
+    IndexPage* node = malloc_index_page();
     Cell* new_cell = malloc_cell();
     Cell* old_cell = malloc_cell();
 
     new_cell->size = record->size;
     new_cell->key = key;
     if ((new_cell->offset = lseek(db->data_fd, 0, SEEK_END)) < 0) {
-        free_page(&node);
+        free_index_page(&node);
         free_cell(&new_cell);
         free_cell(&old_cell);
         errno = EIO;
         return -1;
     }
 
-    int pos = search(db->idx_fd, db->header, node, key, old_cell);
+    int pos = search_index(db->idx_fd, db->header, node, key, old_cell);
     if (pos < 0) {
-        free_page(&node);
+        free_index_page(&node);
         free_cell(&new_cell);
         free_cell(&old_cell);
         errno = ENOENT;
@@ -204,15 +203,15 @@ int db_store(DB* db, uint64_t key, Record* record, int flag) {
     }
     if (node->cells[pos].key == key) {
         if (flag == DB_INSERT) {
-            free_page(&node);
+            free_index_page(&node);
             free_cell(&new_cell);
             free_cell(&old_cell);
             errno = EEXIST;
             return -1;
         }
 
-        ssize_t ret = update(db->idx_fd, node, pos, new_cell);
-        free_page(&node);
+        ssize_t ret = update_index(db->idx_fd, node, pos, new_cell);
+        free_index_page(&node);
         if (ret < 0) {
             free_cell(&new_cell);
             free_cell(&old_cell);
@@ -260,14 +259,14 @@ int db_store(DB* db, uint64_t key, Record* record, int flag) {
         }
 
         if (write(db->data_fd, record->data, record->size) < 0) {
-            free_page(&node);
+            free_index_page(&node);
             free_cell(&new_cell);
             errno = EIO;
             return -1;
         }
 
         if (unlock(db->data_fd, node->cells[pos].offset, SEEK_SET, node->cells[pos].size) < 0) {
-            free_page(&node);
+            free_index_page(&node);
             free_cell(&new_cell);
             errno = EAGAIN;
             return -1;
@@ -275,13 +274,13 @@ int db_store(DB* db, uint64_t key, Record* record, int flag) {
     } else {
         free_cell(&old_cell);
         if (flag == DB_REPLACE) {
-            free_page(&node);
+            free_index_page(&node);
             free_cell(&new_cell);
             errno = ENOENT;
             return -1;
         }
-        ssize_t ret = insert(db->idx_fd, db->header, node, pos, new_cell);
-        free_page(&node);
+        ssize_t ret = insert_index(db->idx_fd, db->header, node, pos, new_cell);
+        free_index_page(&node);
         if (ret < 0) {
             free_cell(&new_cell);
             errno = EAGAIN;
@@ -310,14 +309,14 @@ int db_store(DB* db, uint64_t key, Record* record, int flag) {
         }
     }
 
-    free_page(&node);
+    free_index_page(&node);
     free_cell(&new_cell);
     free_cell(&old_cell);
     return 0;
 }
 
 int db_delete(DB* db, uint64_t key) {
-    Page* node = malloc_page();
+    IndexPage* node = malloc_index_page();
     if (node == NULL) {
         errno = ENOMEM;
         return -1;
@@ -325,27 +324,27 @@ int db_delete(DB* db, uint64_t key) {
 
     Cell* cell = malloc_cell();
     if (cell == NULL) {
-        free_page(&node);
+        free_index_page(&node);
         errno = ENOMEM;
         return -1;
     }
 
-    int pos = search(db->idx_fd, db->header, node, key, cell);
+    int pos = search_index(db->idx_fd, db->header, node, key, cell);
     if (pos < 0) {
-        free_page(&node);
+        free_index_page(&node);
         free_cell(&cell);
         errno = ENOENT;
         return -1;
     }
     if (node->cells[pos].key != key) {
-        free_page(&node);
+        free_index_page(&node);
         free_cell(&cell);
         errno = ENOENT;
         return -1;
     }
 
-    ssize_t ret = delete(db->idx_fd, node, pos);
-    free_page(&node);
+    ssize_t ret = delete_index(db->idx_fd, node, pos);
+    free_index_page(&node);
     if (ret < 0) {
         free_cell(&cell);
         errno = ENOENT;
@@ -387,7 +386,7 @@ int db_delete(DB* db, uint64_t key) {
 }
 
 int db_first_key(DB* db, Cell* cell) {
-    Page* leaf = malloc_page();
+    IndexPage* leaf = malloc_index_page();
     if (leaf == NULL) {
         errno = ENOMEM;
         return -1;
@@ -395,7 +394,7 @@ int db_first_key(DB* db, Cell* cell) {
     return first_key(db->idx_fd, db->header, leaf, cell);
 }
 
-int db_next_key(DB* db, Page* leaf, int* pos, Cell* cell) {
+int db_next_key(DB* db, IndexPage* leaf, int* pos, Cell* cell) {
     return next_key(db->idx_fd, leaf, pos, cell);
 }
 
@@ -430,7 +429,7 @@ int db_reorganize(DB* db) {
         return -1;
     }
 
-    Page* leaf = malloc_page();
+    IndexPage* leaf = malloc_index_page();
     if (leaf == NULL) {
         close(new_idx_fd);
         close(new_data_fd);
@@ -440,13 +439,13 @@ int db_reorganize(DB* db) {
         return -1;
     }
 
-    Page* new_leaf = malloc_page();
+    IndexPage* new_leaf = malloc_index_page();
     if (new_leaf == NULL) {
         close(new_idx_fd);
         close(new_data_fd);
         free_cell(&cell);
         free_record(&record);
-        free_page(&leaf);
+        free_index_page(&leaf);
         errno = ENOMEM;
         return -1;
     }
@@ -462,8 +461,8 @@ int db_reorganize(DB* db) {
         close(new_data_fd);
         free_cell(&cell);
         free_record(&record);
-        free_page(&leaf);
-        free_page(&new_leaf);
+        free_index_page(&leaf);
+        free_index_page(&new_leaf);
         errno = ENOENT;
         return -1;
     }
@@ -479,8 +478,8 @@ int db_reorganize(DB* db) {
             close(new_data_fd);
             free_cell(&cell);
             free_record(&record);
-            free_page(&leaf);
-            free_page(&new_leaf);
+            free_index_page(&leaf);
+            free_index_page(&new_leaf);
             errno = EAGAIN;
             return -1;
         }
@@ -489,8 +488,8 @@ int db_reorganize(DB* db) {
             close(new_data_fd);
             free_cell(&cell);
             free_record(&record);
-            free_page(&leaf);
-            free_page(&new_leaf);
+            free_index_page(&leaf);
+            free_index_page(&new_leaf);
             return -1;
         }
         if (read(db->data_fd, record, cell->size) < 0) {
@@ -498,8 +497,8 @@ int db_reorganize(DB* db) {
             close(new_data_fd);
             free_cell(&cell);
             free_record(&record);
-            free_page(&leaf);
-            free_page(&new_leaf);
+            free_index_page(&leaf);
+            free_index_page(&new_leaf);
             errno = EIO;
             return -1;
         }
@@ -508,8 +507,8 @@ int db_reorganize(DB* db) {
             close(new_data_fd);
             free_cell(&cell);
             free_record(&record);
-            free_page(&leaf);
-            free_page(&new_leaf);
+            free_index_page(&leaf);
+            free_index_page(&new_leaf);
             errno = EAGAIN;
             return -1;
         }
@@ -519,8 +518,8 @@ int db_reorganize(DB* db) {
             close(new_data_fd);
             free_cell(&cell);
             free_record(&record);
-            free_page(&leaf);
-            free_page(&new_leaf);
+            free_index_page(&leaf);
+            free_index_page(&new_leaf);
             errno = EAGAIN;
             return -1;
         }
@@ -529,8 +528,8 @@ int db_reorganize(DB* db) {
             close(new_data_fd);
             free_cell(&cell);
             free_record(&record);
-            free_page(&leaf);
-            free_page(&new_leaf);
+            free_index_page(&leaf);
+            free_index_page(&new_leaf);
             errno = EIO;
             return -1;
         }
@@ -540,14 +539,14 @@ int db_reorganize(DB* db) {
             close(new_data_fd);
             free_cell(&cell);
             free_record(&record);
-            free_page(&leaf);
-            free_page(&new_leaf);
+            free_index_page(&leaf);
+            free_index_page(&new_leaf);
             errno = EAGAIN;
             return -1;
         }
 
-        new_pos = search(new_idx_fd, &new_header, new_leaf, cell->key, NULL);
-        insert(new_idx_fd, &new_header, new_leaf, new_pos, cell);
+        new_pos = search_index(new_idx_fd, &new_header, new_leaf, cell->key, NULL);
+        insert_index(new_idx_fd, &new_header, new_leaf, new_pos, cell);
 
         next_key_ret = db_next_key(db, leaf, &pos, cell);
         if (next_key_ret == -1) {
@@ -555,21 +554,22 @@ int db_reorganize(DB* db) {
             close(new_data_fd);
             free_cell(&cell);
             free_record(&record);
-            free_page(&leaf);
-            free_page(&new_leaf);
+            free_index_page(&leaf);
+            free_index_page(&new_leaf);
             errno = EIO;
             return -1;
         }
     } while (next_key_ret == -2);
 
+    // todo: write lock when rename file
     char path[PATH_MAX];
     if (fcntl(db->idx_fd, F_GETPATH, path) < 0) {
         close(new_idx_fd);
         close(new_data_fd);
         free_cell(&cell);
         free_record(&record);
-        free_page(&leaf);
-        free_page(&new_leaf);
+        free_index_page(&leaf);
+        free_index_page(&new_leaf);
         errno = EIO;
         return -1;
     }
@@ -580,8 +580,8 @@ int db_reorganize(DB* db) {
         close(new_data_fd);
         free_cell(&cell);
         free_record(&record);
-        free_page(&leaf);
-        free_page(&new_leaf);
+        free_index_page(&leaf);
+        free_index_page(&new_leaf);
         errno = EIO;
         return -1;
     }
@@ -591,8 +591,8 @@ int db_reorganize(DB* db) {
         close(new_data_fd);
         free_cell(&cell);
         free_record(&record);
-        free_page(&leaf);
-        free_page(&new_leaf);
+        free_index_page(&leaf);
+        free_index_page(&new_leaf);
         errno = EIO;
         return -1;
     }
@@ -603,8 +603,8 @@ int db_reorganize(DB* db) {
         close(new_data_fd);
         free_cell(&cell);
         free_record(&record);
-        free_page(&leaf);
-        free_page(&new_leaf);
+        free_index_page(&leaf);
+        free_index_page(&new_leaf);
         errno = EIO;
         return -1;
     }

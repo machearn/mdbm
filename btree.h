@@ -10,7 +10,7 @@
 #define MAX_CELL 168
 
 typedef struct Cell Cell;
-typedef struct Page Page;
+typedef struct IndexPage IndexPage;
 typedef struct Header Header;
 
 typedef enum {
@@ -33,7 +33,7 @@ struct Cell {
     off_t offset; // if page is leaf, it is the offset of record, else it is the offset of subpage.
 };
 
-struct Page {
+struct IndexPage {
     NodeType type; // Leaf or Internal
     uint8_t is_root;
     uint8_t num_cells;
@@ -46,22 +46,22 @@ struct Page {
     char padding[16];
 };
 
-Page* malloc_page();
-void free_page(Page** page);
+IndexPage* malloc_index_page();
+void free_index_page(IndexPage** page);
 Cell* malloc_cell();
 void free_cell(Cell** cell);
 
-int first_key(int fd, Header* header, Page* leaf, Cell* cell);
-int next_key(int fd, Page* leaf, int* pos, Cell* cell);
+int first_key(int fd, Header* header, IndexPage* leaf, Cell* cell);
+int next_key(int fd, IndexPage* leaf, int* pos, Cell* cell);
 
 int load_index_header(int fd, Header* header);
 
 int create_tree(int fd);
-int get_left_most_leaf(int fd, Header* header, Page* leaf);
+int get_left_most_leaf(int fd, Header* header, IndexPage* leaf);
 
-ssize_t insert(int fd, Header* header, Page* leaf, int pos, const Cell* cell);
-int search(int fd, Header* header, Page* node, uint64_t key, Cell* Cell);
-ssize_t delete(int fd, Page* leaf, int pos);
-ssize_t update(int fd, Page* leaf, int pos, const Cell* cell);
+ssize_t insert_index(int fd, Header* header, IndexPage* leaf, int pos, const Cell* cell);
+int search_index(int fd, Header* header, IndexPage* node, uint64_t key, Cell* Cell);
+ssize_t delete_index(int fd, IndexPage* leaf, int pos);
+ssize_t update_index(int fd, IndexPage* leaf, int pos, const Cell* cell);
 
 #endif //MDBM_BTREE_H
