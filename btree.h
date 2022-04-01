@@ -29,8 +29,8 @@ struct Header {
 
 struct Cell {
     uint64_t key;
-    size_t size; // if page is leaf, it is the size of record, else it is the size of subpage.
-    off_t offset; // if page is leaf, it is the offset of record, else it is the offset of subpage.
+    off_t offset; // if page is leaf, it is the offset of data page, else it is the offset of subpage.
+    size_t slot; // the index of slot.
 };
 
 struct IndexPage {

@@ -87,7 +87,7 @@ int init_page(IndexPage* page, uint8_t is_root, uint8_t type, off_t parent, off_
     return 0;
 }
 
-int add_cell(IndexPage* leaf, int pos, uint64_t key, off_t offset, size_t size) {
+int add_cell(IndexPage* leaf, int pos, uint64_t key, off_t offset, uint16_t slot) {
     Cell* begin = leaf->cells;
     for (int i = leaf->num_cells - 1; i > pos; i--) {
         memcpy(begin + i + 1, begin + i, sizeof(Cell));
@@ -95,7 +95,7 @@ int add_cell(IndexPage* leaf, int pos, uint64_t key, off_t offset, size_t size) 
 
     begin[pos + 1].key = key;
     begin[pos + 1].offset = offset;
-    begin[pos + 1].size = size;
+    begin[pos + 1].slot = slot;
 
     leaf->num_cells++;
 
@@ -323,7 +323,7 @@ int init_root(int fd, Header* header, IndexPage* left_child, uint64_t key) {
 
     root->cells[0].key = key;
     root->cells[0].offset = left_child->next_page;
-    root->cells[0].size = sizeof(IndexPage);
+    root->cells[0].slot = -1;
     root->num_cells = 1;
 
     header->node_number++;
@@ -398,7 +398,7 @@ int insert_leaf_page(int fd, Header* header, IndexPage* prev, const Cell* cell) 
 
     off_t off = recover;
     init_page(new_leaf, 0, LEAF_NODE, prev->parent, prev->offset, -1, off, -1);
-    add_cell(new_leaf, -1, cell->key, cell->offset, cell->size);
+    add_cell(new_leaf, -1, cell->key, cell->offset, cell->slot);
 
     prev->next_page = new_leaf->offset;
 
@@ -493,17 +493,17 @@ ssize_t insert_index(int fd, Header* header, IndexPage* leaf, int pos, const Cel
 
         int ret;
         if (pos2 == -1) {
-            add_cell(leaf, pos1, cell->key, cell->offset, cell->size);
+            add_cell(leaf, pos1, cell->key, cell->offset, cell->slot);
             ret = (int) dump_page(fd, leaf);
         } else {
-            add_cell(new_leaf, pos2, cell->key, cell->offset, cell->size);
+            add_cell(new_leaf, pos2, cell->key, cell->offset, cell->slot);
             ret = (int) dump_page(fd, new_leaf);
         }
         free_index_page(&new_leaf);
         return ret;
     }
 
-    add_cell(leaf, pos, cell->key, cell->offset, cell->size);
+    add_cell(leaf, pos, cell->key, cell->offset, cell->slot);
     return dump_page(fd, leaf);
 }
 
