@@ -7,7 +7,7 @@
 
 #include <sys/types.h>
 
-#define MAX_CELL 168
+#define MAX_CELL 126
 
 typedef struct Cell Cell;
 typedef struct IndexPage IndexPage;
@@ -31,6 +31,7 @@ struct Cell {
     uint64_t key;
     off_t offset; // if page is leaf, it is the offset of data page, else it is the offset of subpage.
     size_t slot_index; // the index of slot_index.
+    size_t tuple_size;
 };
 
 struct IndexPage {
